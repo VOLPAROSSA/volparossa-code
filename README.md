@@ -58,6 +58,13 @@ a native-editor test or a measure of general coding quality.
 See the [explicit runtime build and native trial](docs/RUNTIME_BUILD.md). Nothing
 is downloaded or started merely by installing or activating the extension.
 
+The next [local Responses adapter](docs/RESPONSES_PROVIDER.md) now connects a
+bounded text/tool subset to the core's separate conversation interface. It retains
+call/result identities and waits for confirmed core cleanup before returning a
+completed turn. Its real HTTP/Unix-socket tests use synthetic model responses;
+the actual Codex/model/tool loop is **not proved yet**. The new Qwen conversation
+profile is a larger-context candidate, not evidence of reliable coding performance.
+
 ## Try the development extension
 
 On Linux, explicitly prepare and start the core's private service following its
@@ -81,12 +88,12 @@ npm run check
 
 ## Remaining integration work
 
-- Connect a genuine VOLPAROSSA coding-model/provider interface to the Codex
-  Responses/tool loop; the current bounded Q&A endpoint is not that interface.
+- Prove the new conversation/provider interface with an actual model and the
+  native Codex Responses/tool loop; the bounded Q&A endpoint stays separate.
 - Connect the built runtime to the extension and core provider, retaining its
   isolated configuration and upstream notices; never use the owner's OpenAI login
   or cloud fallback.
-- Add conversation/context support, typed tool calls, reviewable diffs and local
+- Complete native conversation/tool interoperability, reviewable diffs and local
   approvals, then prove an actual edit-and-test coding task end to end.
 - Delegate eligible work through the core's cooperative scheduler, with explicit
   privacy scope, cancellation, resource accounting and result provenance.
