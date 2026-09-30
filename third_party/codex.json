@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/openai/codex",
+  "revision": "67727e7cf114cf3e1b71db368d74b24e32f6cb12",
+  "license": "Apache-2.0",
+  "role": "Open CLI/app-server protocol reference for an independent GPL-3.0-only frontend",
+  "runtime_bundled": false,
+  "runtime_built": false,
+  "upstream_modified": false,
+  "proprietary_ide_extension_copied": false,
+  "sha256": {
+    "LICENSE": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+    "NOTICE": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915",
+    "codex-rs/app-server-protocol/src/protocol/v2/thread.rs": "ee738dfe716fbbd61eb97006714d2c6bf31d6c7dae425ca6d6e60b648b701c6f",
+    "codex-rs/app-server-protocol/src/protocol/v2/shared.rs": "4d31555109d47952dbff739b827ea321ec66dce6e8497e824c4eed9adaefeca1",
+    "codex-rs/app-server-protocol/src/protocol/v2/turn.rs": "e8be3b56bbf7b4313501f2bbb9b01aa1e211b8c3eb7fd3143373e23e5780b4aa",
+    "codex-rs/app-server-protocol/src/protocol/v2/item.rs": "cf58812aafce8d213090d430b62585477351738b5a90354ed07be338cf9ad06d",
+    "codex-rs/app-server-protocol/src/protocol/common.rs": "c72fc8b16ed2236cd3b934f0f448304686b1184880445cec4da80e564336fd66"
+  }
+}
+
