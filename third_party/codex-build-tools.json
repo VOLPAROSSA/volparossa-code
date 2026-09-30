@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "source_revision": "67727e7cf114cf3e1b71db368d74b24e32f6cb12",
+  "lock_sha256": "571137c35517878869d5dca7ca5df5fa0b3e596e0466ad7b8c100041c6ce75b8",
+  "bundled_native_build_tools": [
+    {
+      "name": "protoc",
+      "purpose": "Upstream code-mode-protocol/build.rs generates Rust protocol bindings",
+      "wrapper_package": "protoc-bin-vendored",
+      "wrapper_version": "3.2.0",
+      "wrapper_crate_sha256": "d1c381df33c98266b5f08186583660090a4ffa0889e76c7e9a5e175f645a67fa",
+      "platform_package": "protoc-bin-vendored-linux-x86_64",
+      "platform_version": "3.2.0",
+      "platform_crate_sha256": "b38b07546580df720fa464ce124c4b03630a6fb83e05c336fea2a241df7e5d78",
+      "binary_path_in_crate": "bin/protoc",
+      "binary_bytes": 10171232,
+      "binary_sha256": "caaf8517e57c57d34a7d6f0544172d9051abf58556aa35c70d3fb0d824b8cfbb",
+      "separate_unpinned_download": false,
+      "built_from_source_in_this_recipe": false,
+      "upstream_installer_executed": false,
+      "host_installed": false
+    }
+  ],
+  "scope": "Explicit record of the Cargo.lock checksum-covered native protoc build tool; not a claim that every toolchain component is built from source. Original notices are retained in build/codex-runtime/notices and the private dependency cache."
+}

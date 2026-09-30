@@ -43,8 +43,20 @@ reported as success. There is no public-peer or OpenAI fallback.
 These first commands use the core directly. They are **not yet routed through
 Codex**. The separate app-server client implements the pinned NDJSON handshake,
 thread/turn requests, notifications and interruption, and declines tool approvals
-until an interactive approval layer is connected. Its tests use a protocol
-fixture, not a running Codex binary.
+until an interactive approval layer is connected. Its focused protocol tests are
+now complemented by a **real, source-built app-server lifecycle trial**:
+initialization, an ephemeral VOLPAROSSA-provider thread, exact unsubscribe and
+clean shutdown pass in disposable namespaces without OpenAI credentials or
+network access. This trial does not send a model turn or execute tools.
+
+Separately, the [real core/model trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/36738995292)
+passes with this repository's pinned private client and the 360M model: a small
+synthetic-code question produces a complete answer containing its identifier,
+with cancellation, isolation and cleanup checks. This is an adapter proof, not
+a native-editor test or a measure of general coding quality.
+
+See the [explicit runtime build and native trial](docs/RUNTIME_BUILD.md). Nothing
+is downloaded or started merely by installing or activating the extension.
 
 ## Try the development extension
 
@@ -71,8 +83,9 @@ npm run check
 
 - Connect a genuine VOLPAROSSA coding-model/provider interface to the Codex
   Responses/tool loop; the current bounded Q&A endpoint is not that interface.
-- Prepare the exact open runtime with preserved upstream notices and an isolated
-  configuration, without using the owner's OpenAI login or cloud fallback.
+- Connect the built runtime to the extension and core provider, retaining its
+  isolated configuration and upstream notices; never use the owner's OpenAI login
+  or cloud fallback.
 - Add conversation/context support, typed tool calls, reviewable diffs and local
   approvals, then prove an actual edit-and-test coding task end to end.
 - Delegate eligible work through the core's cooperative scheduler, with explicit

@@ -4,8 +4,10 @@
   "license": "Apache-2.0",
   "role": "Open CLI/app-server protocol reference for an independent GPL-3.0-only frontend",
   "runtime_bundled": false,
-  "runtime_built": false,
-  "upstream_modified": false,
+  "runtime_built": true,
+  "upstream_modified": true,
+  "upstream_checkout_modified": false,
+  "runtime_pin": "third_party/codex-runtime.json",
   "proprietary_ide_extension_copied": false,
   "sha256": {
     "LICENSE": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
@@ -17,4 +19,3 @@
     "codex-rs/app-server-protocol/src/protocol/common.rs": "c72fc8b16ed2236cd3b934f0f448304686b1184880445cec4da80e564336fd66"
   }
 }
-

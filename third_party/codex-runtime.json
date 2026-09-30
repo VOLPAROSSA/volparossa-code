@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "repository": "https://github.com/openai/codex",
+  "revision": "67727e7cf114cf3e1b71db368d74b24e32f6cb12",
+  "tree": "ea880e9a6ce9277531a9ab88be06f40a7ddf7b6f",
+  "license": "Apache-2.0",
+  "upstream_modified": true,
+  "upstream_checkout_modified": false,
+  "previous_unpatched_pin_sha256": "59d6b99c403deb7bc8c527eb1c2cdc384fe8738c8582c10438ae44d85521c036",
+  "patches": [
+    {
+      "file": "patches/codex-chatgpt-recursion-limit.patch",
+      "sha256": "8753d409b11813f77c7b9b2c9c08accf2ab13f777bab6ee388683369d83eb4ec",
+      "target": "codex-rs/chatgpt/src/lib.rs",
+      "original_sha256": "49af859977cfabc54a894c927c86067d3532f98751ad18af0f4dfb2a3c25e955",
+      "patched_sha256": "2c189062123edeb250f58a0ce17e79517189e88bebb349c9ebaba5c123a0f529",
+      "patched_bytes": 110,
+      "reason": "Explicit local compatibility patch: increase only codex-chatgpt's query recursion limit to 256 after the real Rust 1.98.1 build failed at depth 130. No runtime behavior or model/provider configuration changed."
+    }
+  ],
+  "upstream_toolchain": "1.95.0",
+  "candidate_compiler": "1.98.1",
+  "toolchain_report_sha256": "f994b853cae209236bd522735903f66a4a01f5cc8c04632d36aa45449ca367ac",
+  "sha256": {
+    "LICENSE": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+    "NOTICE": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915",
+    "codex-rs/Cargo.lock": "571137c35517878869d5dca7ca5df5fa0b3e596e0466ad7b8c100041c6ce75b8",
+    "codex-rs/Cargo.toml": "10babe56e2eedc6d740d8b1fd451deb9356d41c1964567eb129edc2e2ef64f41",
+    "codex-rs/app-server/Cargo.toml": "6b75a34f4ba0ce14d49f626b34310ce51e675216e03616fd1dae807c70b88708",
+    "codex-rs/rust-toolchain.toml": "570656042681cfd8795403a455baf9a33035331a07db0645e866bbcea89a3d64"
+  }
+}
