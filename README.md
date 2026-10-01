@@ -43,7 +43,8 @@ reported as success. There is no public-peer or OpenAI fallback.
 These first commands use the core directly. They are **not yet routed through
 Codex**. The separate app-server client implements the pinned NDJSON handshake,
 thread/turn requests, notifications and interruption, and declines tool approvals
-until an interactive approval layer is connected. Its focused protocol tests are
+by default. An explicit caller can supply a narrowly scoped per-command approval
+policy; the normal extension does not enable it. Its focused protocol tests are
 now complemented by a **real, source-built app-server lifecycle trial**:
 initialization, an ephemeral VOLPAROSSA-provider thread, exact unsubscribe and
 clean shutdown pass in disposable namespaces without OpenAI credentials or
@@ -64,6 +65,12 @@ call/result identities and waits for confirmed core cleanup before returning a
 completed turn. Its real HTTP/Unix-socket tests use synthetic model responses;
 the actual Codex/model/tool loop is **not proved yet**. The new Qwen conversation
 profile is a larger-context candidate, not evidence of reliable coding performance.
+
+An explicit [native coding trial](docs/NATIVE_CODING_TRIAL.md) now supplies the
+missing model catalog and disposable read/edit/test harness. It uses the full
+pinned Codex prompt, actual core inference and native tools, with approvals limited
+to one synthetic project. The harness is implemented and its offline checks pass;
+the actual model-driven coding trial is still pending.
 
 ## Try the development extension
 

@@ -78,3 +78,51 @@ test('initialization is single-flight and a close-only stream rejects pending wo
   const rejected = assert.rejects(pending, /rpc_closed/);
   destroyed.input.destroy(); await rejected;
 });
+
+test('exact explicit model and writable scope do not broaden default threads', async () => {
+  const f = fixture({allowedModels: ['qwen3-0.6b-v1'], writableRoot: '/opt/work/project', commandApproval: () => false});
+  const init = f.client.initialize(); f.reply(1, {}); await init;
+  for (const [index, cwd, sandbox] of [[2, '/opt/work/project', 'workspace-write'], [3, '/elsewhere', 'read-only']]) {
+    const thread = f.client.startThread({model: 'qwen3-0.6b-v1', cwd});
+    assert.equal(f.sent.at(-1).params.sandbox, sandbox);
+    assert.equal(f.sent.at(-1).params.approvalPolicy, 'untrusted');
+    f.reply(index, {}); await thread;
+  }
+  await assert.rejects(f.client.startThread({model: 'qwen3-8b', cwd: '/opt/work/project'}), /thread_scope/);
+  f.client.close();
+  assert.throws(() => fixture({writableRoot: '/opt/work/project'}), /client_scope/);
+});
+
+test('optional command policy approves one command only; pre-initialize and other capabilities remain denied', async () => {
+  let calls = 0;
+  const f = fixture({commandApproval: params => { calls++; return params.allowed; }});
+  const ask = (id, method, params) => f.input.write(JSON.stringify({id, method, params}) + '\n');
+  ask('before', 'item/commandExecution/requestApproval', {allowed: true});
+  assert.equal(calls, 0); assert.equal(f.sent.at(-1).result.decision, 'decline');
+  const init = f.client.initialize(); f.reply(1, {}); await init;
+  for (const allowed of [true, false, 'acceptForSession', {decision: 'accept'}]) {
+    ask(String(calls), 'item/commandExecution/requestApproval', {allowed});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.sent.at(-1).result.decision, allowed === true ? 'accept' : 'decline');
+  }
+  ask('file', 'item/fileChange/requestApproval', {allowed: true});
+  assert.equal(f.sent.at(-1).result.decision, 'decline');
+  ask('token', 'account/chatgptAuthTokens/refresh', {});
+  assert.equal(f.sent.at(-1).error.code, -32601);
+  assert.equal(calls, 4); f.client.close();
+});
+
+test('failed or late approval policies cannot grant authority', async () => {
+  const f = fixture({commandApproval: () => { throw Error('synthetic policy failure'); }});
+  const init = f.client.initialize(); f.reply(1, {}); await init;
+  f.input.write('{"id":"deny","method":"item/commandExecution/requestApproval","params":{}}\n');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.sent.at(-1).result.decision, 'decline'); f.client.close();
+  let finish;
+  const late = fixture({commandApproval: () => new Promise(resolve => { finish = resolve; })});
+  const initialized = late.client.initialize(); late.reply(1, {}); await initialized;
+  late.input.write('{"id":"late","method":"item/commandExecution/requestApproval","params":{}}\n');
+  await new Promise(resolve => setImmediate(resolve));
+  late.client.close(); finish(true); await new Promise(resolve => setImmediate(resolve));
+  assert(!late.sent.some(value => value.id === 'late'));
+});

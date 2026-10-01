@@ -1,0 +1,105 @@
+# Native Codex → core → real coding trial
+
+This additive development harness connects the **actual pinned app-server** to
+the local Responses adapter and an already-running VOLPAROSSA Qwen conversation
+service. It is ready for an explicit real trial; **a successful native model-driven
+read/edit/test loop has not yet been observed**. Offline protocol/helper tests
+are not a substitute for that result.
+
+The ordinary extension and `AppServer` defaults remain unchanged: no automatic
+runtime/model startup, read-only threads and declined tool approvals. An explicit
+caller may select an exact advertised model and supply a per-command approval
+handler. Only a thread in that caller's exact writable root receives workspace
+write access. The test harness uses that opt-in for one synthetic project; it
+does not add an automatic-approval mode to normal editor use.
+
+## One small, real task
+
+The model receives the entire original 20,903-byte Codex base prompt from commit
+`67727e7cf114cf3e1b71db368d74b24e32f6cb12`, SHA256
+`ac8ae107a0d72fe3476b430afb161ea4e67da2e446d778aefc44828160559807`.
+The explicit `qwen3-0.6b-v1` model catalog chooses native `exec_command` /
+`write_stdin` tools and no reasoning or grammar-based apply-patch tool. Unsupported
+grammar remains an error in the provider, not something silently stripped from a
+tool definition. There is no shortened replacement system prompt.
+
+The disposable project contains only `arithmetic.py`, whose `add` function is
+incorrect. The model must choose actual native tool calls to:
+
+1. Read that file through the read-only mounted fixture helper.
+2. Supply its own bounded arithmetic expression for the helper to write.
+3. Run three actual unit tests and finish the native turn.
+
+The helper performs real I/O and tests. It does not generate a model response or
+substitute a predetermined repair. Its three command forms are the only commands
+the caller approves, bound to the exact thread, turn and working directory. The
+caller declines session approvals, network requests, policy amendments, unknown
+commands and file-change requests. Successful reads precede edits, and edits
+precede tests. A separate post-turn test verifies the actual changed file again.
+
+This narrow task is an interoperability test, **not** evidence of general coding
+ability, free-form shell authority, editor integration or private distributed
+inference. The core remains responsible for model execution, limits and cleanup.
+No peer scheduler or secondary inference engine is introduced here.
+
+## Explicit execution
+
+Requirements: Debian 13/Linux with unprivileged bubblewrap namespaces, an existing
+verified source-built app-server bundle including `BUILD_REPORT.json` and notices,
+a verified Node 22+ executable, the pinned upstream prompt, and an explicitly
+started same-owner Qwen private-conversation service. The script fetches, builds
+and starts none of these dependencies. Its core socket and parent must be mode
+0600 and 0700 respectively.
+
+Choose a fresh output directory below this checkout's existing `build/` directory:
+
+```sh
+python3 -B scripts/smoke_native_coding.py \
+  --app-server /absolute/workspace/codex-runtime/runtime/codex-app-server \
+  --app-server-sha256 VERIFIED_BINARY_SHA256 \
+  --build-report /absolute/workspace/codex-runtime/BUILD_REPORT.json \
+  --node /absolute/workspace/node --node-sha256 VERIFIED_NODE_SHA256 \
+  --upstream-prompt /absolute/pinned-source/codex-rs/models-manager/prompt.md \
+  --socket /absolute/owner-private-directory/private.sock \
+  --output /absolute/checkout/build/new-native-coding-trial \
+  --execute --yes
+```
+
+Without `--execute --yes`, only validation and the action plan run. Actual execution
+uses new user, network, PID, mount, IPC and UTS namespaces with all capabilities
+dropped. Only system runtime files, the exact socket, verified runtimes, adapter
+sources and synthetic state are exposed. The owner's home and Codex configuration
+are absent; neither `HOME` nor `CODEX_HOME` is overridden. The app-server uses a
+new in-memory loopback bearer secret, not an OpenAI credential, and that secret is
+excluded from tool environments. Outside networking, telemetry, external tools,
+cloud login and automatic retries are disabled.
+
+The native turn is bounded to 40 minutes and at most six accepted fixture commands.
+Every model request remains subject to the core's existing token, memory and
+600-second execution bounds. The separate two-turn core KVM fixture currently
+has a **1,400-second service window**, so this longer trial needs an explicitly
+extended or separate service window; do not append it after that service stops.
+Memory admission refusal, invalid model tools, token exhaustion or a missing
+read/edit/test action fails the trial visibly. No reclaims, restarts, silent input
+truncation or canned answers turn those failures into success.
+
+## Evidence and cleanup
+
+Success requires the actual app-server's command-completion events, changed file
+hash, independent passing tests, at least four cleanup-confirmed real core
+responses, exact thread unsubscribe and graceful runtime exit. Partial responses,
+unexpected commands and uncertain cleanup cannot pass. The JSON report contains
+closed statuses, counters and source/runtime/input hashes—not prompts, model text,
+tool output, URLs or credentials. Runtime source/lock/patch provenance is checked
+against the tracked build pin, and the original upstream notices remain intact.
+
+The owned PID namespace is joined and the synthetic project, ephemeral app-server
+home and temporary configuration are removed. Read-only before/after snapshots
+must show unchanged host network namespace, routes and DNS. A surrounding KVM
+fixture must independently account for its actual core/model service lifecycle.
+
+Offline checks require no model or app-server execution:
+
+```sh
+node --test tests/app-server.test.cjs tests/native-coding.test.cjs tests/responses-provider.test.cjs
+```

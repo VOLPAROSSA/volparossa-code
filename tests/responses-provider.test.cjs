@@ -76,6 +76,7 @@ test('native-shaped request streams only the exact final answer after cleanup, w
     const pending = send(f.provider, request()); pending.then(() => { settled = true; });
     await ready;
     await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+    assert.deepEqual(f.provider.observations, {submitted: 1, completed: 0, incomplete: 0, cleanup_confirmed: 0});
     assert.deepEqual(f.requests.map(row => row.operation.type), ['conversation_capabilities', 'submit_conversation']);
     const forwarded = f.requests[1].operation.conversation;
     assert.equal(forwarded.instructions, request().instructions);
@@ -91,6 +92,8 @@ test('native-shaped request streams only the exact final answer after cleanup, w
     assert.deepEqual(rows.at(-1).response.usage, { input_tokens: 10, output_tokens: 20, total_tokens: 30,
       input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } });
     assert.equal(rows.at(-1).response.end_turn, true);
+    assert.deepEqual(f.provider.observations, {submitted: 1, completed: 1, incomplete: 0, cleanup_confirmed: 1});
+    assert(Object.isFrozen(f.provider.observations));
     const followup = request();
     followup.input.push(rows.at(-1).response.output[0], { type: 'message', role: 'user', content: 'Continue.' });
     assert.equal(toConversation(followup, followup.model, caps()).history[1].text, original.output.text);

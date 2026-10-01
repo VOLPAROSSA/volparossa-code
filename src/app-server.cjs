@@ -10,9 +10,17 @@ const MAX_LINE = 1024 * 1024;
 class AppServer extends EventEmitter {
   #read; #write; #buffer = Buffer.alloc(0); #next = 0; #pending = new Map();
   #closed = false; #ready = false; #initializing = false; #timeout;
-  constructor(readable, writable, {timeoutMs = 15000} = {}) {
+  #models; #writableRoot; #commandApproval; #approvals = new Map();
+  constructor(readable, writable, {timeoutMs = 15000, allowedModels = [], writableRoot = null,
+    commandApproval = null} = {}) {
     super();
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) throw Error('rpc_timeout');
+    if (!Array.isArray(allowedModels) || allowedModels.length > 8 ||
+        !allowedModels.every(model => typeof model === 'string' && /^[a-z0-9][a-z0-9._-]{0,95}$/.test(model)) ||
+        commandApproval !== null && typeof commandApproval !== 'function' ||
+        writableRoot !== null && (typeof writableRoot !== 'string' || !writableRoot.startsWith('/') ||
+          writableRoot.includes('\0') || typeof commandApproval !== 'function')) throw Error('client_scope');
+    this.#models = new Set(allowedModels); this.#writableRoot = writableRoot; this.#commandApproval = commandApproval;
     this.#read = readable; this.#write = writable; this.#timeout = timeoutMs;
     readable.on('data', chunk => this.#data(chunk));
     readable.on('end', () => this.close());
@@ -63,9 +71,23 @@ class AppServer extends EventEmitter {
     if (typeof value.method === 'string') {
       if (Object.hasOwn(value, 'id')) {
         if (!(typeof value.id === 'string' && value.id.length <= 256) && !Number.isSafeInteger(value.id)) throw Error('rpc_id');
-        // No automatic approval, tools, authentication or peer dispatch. A later
-        // interactive approval adapter must explicitly replace this fail-closed behavior.
-        if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(value.method)) {
+        // Defaults remain read-only/decline. Only an explicitly supplied caller
+        // policy may approve one command; never approve sessions or policy changes.
+        if (value.method === 'item/commandExecution/requestApproval' && this.#commandApproval && this.#ready) {
+          if (this.#approvals.size >= 8 || this.#approvals.has(value.id)) throw Error('approval_bound');
+          const finish = accepted => {
+            const timer = this.#approvals.get(value.id);
+            if (timer === undefined) return;
+            clearTimeout(timer); this.#approvals.delete(value.id);
+            if (!this.#closed) {
+              try { this.#send({id: value.id, result: {decision: accepted === true ? 'accept' : 'decline'}}); }
+              catch { this.close(); }
+            }
+          };
+          this.#approvals.set(value.id, setTimeout(() => finish(false), 30000));
+          Promise.resolve().then(() => this.#commandApproval(value.params)).then(finish, () => finish(false))
+            .catch(() => this.close());
+        } else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(value.method)) {
           this.#send({id: value.id, result: {decision: 'decline'}});
         } else this.#send({id: value.id, error: {code: -32601, message: 'Client method not enabled'}});
       } else this.emit('notification', {method: value.method, params: value.params});
@@ -87,10 +109,11 @@ class AppServer extends EventEmitter {
     return result;
   }
   async startThread({model, cwd}) {
-    if (!this.#ready || typeof model !== 'string' || !/^volparossa-[a-z0-9_-]{1,64}$/.test(model) ||
+    if (!this.#ready || typeof model !== 'string' ||
+        !(/^volparossa-[a-z0-9_-]{1,64}$/.test(model) || this.#models.has(model)) ||
         typeof cwd !== 'string' || !cwd.startsWith('/') || cwd.includes('\0')) throw Error('thread_scope');
     return this.request('thread/start', {model, modelProvider: 'volparossa', cwd,
-      sandbox: 'read-only', approvalPolicy: 'untrusted', ephemeral: true});
+      sandbox: this.#writableRoot === cwd ? 'workspace-write' : 'read-only', approvalPolicy: 'untrusted', ephemeral: true});
   }
   async startTurn(threadId, text) {
     if (!this.#ready || typeof threadId !== 'string' || !threadId || threadId.length > 256 ||
@@ -106,6 +129,8 @@ class AppServer extends EventEmitter {
   close() {
     if (this.#closed) return;
     this.#closed = true; this.#buffer = Buffer.alloc(0);
+    for (const timer of this.#approvals.values()) clearTimeout(timer);
+    this.#approvals.clear();
     for (const {reject, timer} of this.#pending.values()) { clearTimeout(timer); reject(Error('rpc_closed')); }
     this.#pending.clear(); this.#read.destroy(); this.#write.destroy(); this.emit('closed');
   }

@@ -229,6 +229,7 @@ async function startResponsesProvider({ socketPath, model }) {
   const bearerToken = randomBytes(32).toString('base64url');
   const authorization = Buffer.from(`Bearer ${bearerToken}`);
   let host, active = null, closing = false;
+  const observed = {submitted: 0, completed: 0, incomplete: 0, cleanup_confirmed: 0};
   const server = http.createServer({ maxHeaderSize: 8192, headersTimeout: 5000, requestTimeout: 10000,
     keepAliveTimeout: 1000 }, (request, response) => {
     const received = Buffer.from(request.headers.authorization ?? '');
@@ -255,7 +256,10 @@ async function startResponsesProvider({ socketPath, model }) {
         const caps = await client.connect();
         check(caps.model_profile === model, 'model_mismatch');
         const conversation = toConversation(input, model, caps);
+        observed.submitted++;
         const result = await client.submit(conversation, { signal: controller.signal });
+        observed.cleanup_confirmed++;
+        if (result.turn_complete) observed.completed++; else observed.incomplete++;
         if (controller.signal.aborted || response.destroyed) return;
         const events = responseEvents(result);
         // No partial model text or tool proposal leaves this process before the
@@ -279,6 +283,8 @@ async function startResponsesProvider({ socketPath, model }) {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   host = `127.0.0.1:${server.address().port}`;
   return { baseUrl: `http://${host}/v1`, bearerToken,
+    // Content-free lifecycle counters for an explicitly started local owner.
+    get observations() { return Object.freeze({...observed}); },
     async close() {
       closing = true;
       const owner = active;

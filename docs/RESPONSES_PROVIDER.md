@@ -60,6 +60,9 @@ tools are supported; grammar formats are rejected rather than weakened. Namespac
 descriptions are retained in each member's bounded description. A complete core
 turn proposes at most one tool call, even when the request permits parallel calls.
 The native tool harness still owns argument validation, approvals and execution.
+The separate [native coding trial](NATIVE_CODING_TRIAL.md) supplies an exact Qwen
+catalog and an explicit synthetic-workspace approval policy. Its implementation
+does not by itself prove a successful native tool loop.
 
 The exact pinned Codex builder includes several optional transport fields even
 for external providers. The adapter accepts these explicitly:
