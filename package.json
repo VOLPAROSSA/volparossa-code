@@ -17,6 +17,7 @@
   "contributes": {
     "commands": [
       {"command": "volparossaCode.reviewSelection", "title": "VOLPAROSSA: Ask About Selected Code (Private, Local)"},
+      {"command": "volparossaCode.codingTask", "title": "VOLPAROSSA: Run Native Coding Task (Private, Local)"},
       {"command": "volparossaCode.capabilities", "title": "VOLPAROSSA: Show Compute Capabilities"}
     ],
     "configuration": {
@@ -25,10 +26,13 @@
         "volparossaCode.privateSocket": {
           "type": "string", "default": "", "scope": "machine",
           "description": "Absolute same-owner Unix socket of an explicitly started VOLPAROSSA private-serve service. No service is started or downloaded by the extension."
+        },
+        "volparossaCode.nativeRuntime": {
+          "type": "object", "default": {}, "scope": "machine",
+          "description": "Explicit prepared native coding runtime inputs; see docs/NATIVE_EDITOR.md. User settings only. No runtime or model is downloaded, and opening a workspace starts nothing."
         }
       }
     }
   },
   "scripts": {"test": "node --test tests/*.test.cjs", "check": "node --check src/extension.cjs && node --check src/app-server.cjs && node --check src/private-compute.cjs"}
 }
-

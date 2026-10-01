@@ -26,25 +26,32 @@ automatically public training or cache material.
 
 ## First executable slice
 
-The extension implements two explicit commands:
+The extension implements explicit commands:
 
 - **VOLPAROSSA: Ask About Selected Code (Private, Local)** sends only a confirmed
   question and selection to an existing same-owner `compute private-serve` socket.
   Responses appear as untrusted plaintext; no changes are applied automatically.
 - **VOLPAROSSA: Show Compute Capabilities** queries that service without sending
   code or claiming that a model has successfully executed.
+- **VOLPAROSSA: Run Native Coding Task (Private, Local)** explicitly launches a
+  prepared, source-verified open Codex runtime in an isolated Linux workspace and
+  connects it to the existing local VOLPAROSSA conversation service. The native
+  agent can read, change and check that selected project, with one-shot command
+  approvals and cancellation. See [setup and current proof limits](docs/NATIVE_EDITOR.md).
 
-The current core interface permits **512 UTF-8 bytes for the question and 4096
+The selected-code advice interface permits **512 UTF-8 bytes for the question and 4096
 for the selection**, subject to the selected model's smaller token budget.
 Over-limit inputs fail instead of being silently shortened. Partial model output
 remains labeled partial. Cancellation is forwarded; uncertain cleanup is not
 reported as success. There is no public-peer or OpenAI fallback.
 
-These first commands use the core directly. They are **not yet routed through
-Codex**. The separate app-server client implements the pinned NDJSON handshake,
+The first two commands use the core directly, not through Codex. The new native
+coding command uses the app-server, but is **not yet proved in a native editor
+with real model-driven editing**. The app-server client implements the pinned NDJSON handshake,
 thread/turn requests, notifications and interruption, and declines tool approvals
 by default. An explicit caller can supply a narrowly scoped per-command approval
-policy; the normal extension does not enable it. Its focused protocol tests are
+policy; only the explicit native coding command enables an interactive one-shot
+policy for the selected project. Its focused protocol tests are
 now complemented by a **real, source-built app-server lifecycle trial**:
 initialization, an ephemeral VOLPAROSSA-provider thread, exact unsubscribe and
 clean shutdown pass in disposable namespaces without OpenAI credentials or
@@ -97,9 +104,9 @@ npm run check
 
 - Prove the new conversation/provider interface with an actual model and the
   native Codex Responses/tool loop; the bounded Q&A endpoint stays separate.
-- Connect the built runtime to the extension and core provider, retaining its
-  isolated configuration and upstream notices; never use the owner's OpenAI login
-  or cloud fallback.
+- Prove the new explicit runtime/extension/provider connection in a native editor,
+  retaining its isolated configuration and upstream notices; never use the
+  owner's OpenAI login or cloud fallback.
 - Complete native conversation/tool interoperability, reviewable diffs and local
   approvals, then prove an actual edit-and-test coding task end to end.
 - Delegate eligible work through the core's cooperative scheduler, with explicit
