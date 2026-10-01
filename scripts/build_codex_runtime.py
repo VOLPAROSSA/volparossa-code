@@ -191,21 +191,33 @@ def size_bound(state):
     return total
 
 
-def run_step(name, argv, env, state, *, network=False, seconds=3600, json_output=False):
+def sandbox_command(argv, state, *, network=False):
     source = state / 'source'
     command = ['/usr/bin/bwrap', '--die-with-parent', '--ro-bind', '/', '/',
                '--tmpfs', '/home', '--tmpfs', '/root', '--tmpfs', '/run', '--tmpfs', '/tmp',
                '--bind', str(state), str(state), '--ro-bind', str(source), str(source),
                '--proc', '/proc', '--dev', '/dev', '--chdir', str(source / 'codex-rs')]
-    if not network:
+    if network:
+        # Resolve before /run is hidden: Ubuntu points /etc/resolv.conf into
+        # /run/systemd/resolve. Re-expose only this file, never the runtime tree.
+        resolver = Path('/etc/resolv.conf').resolve(strict=True)
+        require(resolver.is_file() and resolver.stat().st_size <= 64 * 1024,
+                'invalid dependency-fetch resolver file')
+        command += ['--ro-bind', str(resolver), str(resolver)]
+    else:
         command += ['--unshare-net']
-    command += ['--'] + argv
+    return command + ['--'] + argv
+
+
+def run_step(name, argv, env, state, *, network=False, seconds=3600, json_output=False):
+    command = sandbox_command(argv, state, network=network)
     stamp = time.time_ns()
     log = state / f'{name}-{stamp}.log'
     stdout = state / f'{name}-{stamp}.stdout.json' if json_output else log
     receipt = state / f'{name}-{stamp}.json'
     report = dict(version=1, step=name, argv=argv, passed=False, network_enabled=network,
                   source_read_only=True, compiler_jobs=2, private_home_hidden=True,
+                  resolver_file_read_only=network,
                   app_server_executed=False, log=log.name)
     process, start = None, time.monotonic()
     try:
