@@ -106,5 +106,97 @@ Only these command forms are authorized, one at a time:
 The edit helper writes exactly your proposed expression, not a predetermined repair. It accepts only arithmetic.
 Read first, inspect the returned source, make the minimal edit, and run the actual tests. Finish only after tests pass.
 Do not execute other commands, request escalation, alter tests, use network, or invent tool results.`;
+const CONTINUATION = 'The original task is not complete according to the observed read, edit and test results. Continue the original task in this same workspace, within the same permissions. Do not claim completion until the required work and actual verification are complete.';
+const ITEM_TYPES = Object.freeze(['commandExecution', 'agentMessage', 'userMessage', 'reasoning', 'other']);
+
+// One task may require a second normal native turn. Neither turn completion nor
+// prose is task evidence. This controller never supplies a repair or executes tools.
+class NativeTaskController {
+  constructor(client, threadId, report) {
+    this.client = client; this.threadId = threadId; this.report = report;
+    this.turnId = null; this.terminal = null; this.pending = false;
+    this.stopped = false; this.nativeItems = 0; this.complete = () => {};
+    this.notify = value => this.notification(value);
+    this.closed = () => { this.stopped = true; this.complete(); };
+    client.on('notification', this.notify); client.on('closed', this.closed);
+  }
+  dispose() {
+    this.client.off('notification', this.notify); this.client.off('closed', this.closed);
+  }
+  async stop() {
+    if (this.stopped) return;
+    this.stopped = true; this.complete();
+    if (this.pending && this.turnId) {
+      try { await this.client.interrupt(this.threadId, this.turnId); } catch {}
+    }
+  }
+  approve(params) {
+    const kind = commandKind(params?.command), report = this.report;
+    const inOrder = kind === 'read' || kind === 'edit' && report.read || kind === 'test' && report.read && report.edit;
+    const denial = approvalDenial(params, this.threadId, this.pending && !this.stopped && !this.terminal ? this.turnId : null) ??
+      (!inOrder ? 'order' : report.accepted_commands >= 6 ? 'budget' : null);
+    if (denial === null) report.accepted_commands++;
+    else { report.declined_commands++; report.approval_denials[denial]++; }
+    if (report.declined_commands > 2) void this.stop();
+    return denial === null;
+  }
+  notification({method, params}) {
+    if (!this.pending || this.stopped || this.terminal || params?.threadId !== this.threadId) return;
+    if (method === 'turn/started') {
+      const id = params.turn?.id;
+      if (typeof id !== 'string' || !id || id.length > 256 || this.turnId && this.turnId !== id) {
+        void this.stop(); return;
+      }
+      this.turnId = id;
+    }
+    if (method === 'item/completed' && params.turnId === this.turnId) {
+      const report = this.report, item = params.item;
+      const type = ITEM_TYPES.includes(item?.type) ? item.type : 'other';
+      if (Object.values(report.item_types).reduce((a, b) => a + b, 0) >= 64) { void this.stop(); return; }
+      report.item_types[type]++;
+      if (item?.type !== 'commandExecution') return;
+      if (++this.nativeItems > 8) { void this.stop(); return; }
+      const kind = commandKind(item.command);
+      if (!kind || item.cwd !== PROJECT || kind === 'edit' && !report.read || kind === 'test' && !report.edit) {
+        report.unexpected_command = true; void this.stop(); return;
+      }
+      if (kind === 'edit') report.test = false;
+      if (item.status === 'completed' && item.exitCode === 0) report[kind] = true;
+    }
+    if (method === 'turn/completed' && this.turnId && params.turn?.id === this.turnId) {
+      this.terminal = params.turn; this.complete();
+    }
+  }
+  async run() {
+    try {
+      for (const input of [TASK, CONTINUATION]) {
+        if (this.stopped) throw Error('native_task_stopped');
+        this.turnId = null; this.terminal = null; this.pending = true;
+        this.report.native_turn_completed = false;
+        const finished = new Promise(resolve => { this.complete = resolve; });
+        this.report.turns_started++;
+        const admitted = await this.client.startTurn(this.threadId, input);
+        const id = admitted?.turn?.id;
+        if (typeof id !== 'string' || !id || id.length > 256 || this.turnId && this.turnId !== id) {
+          throw Error('native_turn_mismatch');
+        }
+        this.turnId = id;
+        await finished;
+        this.pending = false;
+        if (this.stopped || this.terminal?.status !== 'completed' || this.terminal.error) {
+          throw Error('native_turn_incomplete');
+        }
+        this.report.turns_completed++;
+        this.report.native_turn_completed = true;
+        if (this.report.read && this.report.edit && this.report.test && !this.report.unexpected_command) return;
+        if (this.report.accepted_commands >= 6 || this.report.unexpected_command) break;
+      }
+      throw Error('native_task_incomplete');
+    } catch (error) {
+      await this.stop();
+      throw error;
+    } finally { this.pending = false; }
+  }
+}
 module.exports = {MODEL, PROJECT, PROMPT_SHA256, modelCatalog, runtimeSettings, commandKind,
-  APPROVAL_DENIALS, approvalDenial, authorize, TASK};
+  APPROVAL_DENIALS, approvalDenial, authorize, TASK, CONTINUATION, ITEM_TYPES, NativeTaskController};

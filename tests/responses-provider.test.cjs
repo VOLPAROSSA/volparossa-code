@@ -14,9 +14,9 @@ function request(model = 'smollm2-360m-v1') {
     include: ['reasoning.encrypted_content'], prompt_cache_key: 'fixture-no-cache', text: null,
     client_metadata: { session_id: 'fixture-no-telemetry', thread_id: 'fixture' } };
 }
-async function start(t, handler, model = 'smollm2-360m-v1') {
+async function start(t, handler, model = 'smollm2-360m-v1', diagnostics = false) {
   const f = await fixture(t, handler, caps(model));
-  const provider = await startResponsesProvider({ socketPath: f.socketPath, model });
+  const provider = await startResponsesProvider({ socketPath: f.socketPath, model, diagnostics });
   // Register explicitly in the parent fixture cleanup order. Closing the HTTP
   // listener is awaited in each test before the synthetic Unix backend closes.
   return { ...f, provider };
@@ -53,6 +53,7 @@ test('explicit loopback provider authenticates before IPC and retains no default
     assert.match(f.provider.baseUrl, /^http:\/\/127\.0\.0\.1:\d+\/v1$/);
     assert.equal(f.provider.bearerToken.length, 43);
     assert.equal(f.requests.length, 0);
+    assert.equal(f.provider.diagnostics, null);
     for (const headers of [{ authorization: 'Bearer wrong' }, { origin: 'https://untrusted.invalid' },
       { referer: 'https://untrusted.invalid/' }, { host: 'attacker.invalid' }, { 'content-encoding': 'gzip' }]) {
       const response = await send(f.provider, request(), headers);
@@ -136,15 +137,41 @@ test('all incomplete core results emit response.incomplete without output or com
   for (const reason of ['token_limit', 'wire_truncated', 'invalid_output']) {
     const f = await start(t, (socket, message) => {
       reply(socket, message, 'admitted'); reply(socket, message, 'result', { result: result({ type: 'incomplete', reason }) });
-    });
+    }, 'smollm2-360m-v1', true);
     try {
       const rows = events(await send(f.provider, request()));
       assert.deepEqual(rows.map(row => row.type), ['response.created', 'response.incomplete']);
       assert.equal(rows.at(-1).response.status, 'incomplete');
       assert.deepEqual(rows.at(-1).response.output, []);
       assert.notEqual(rows.at(-1).response.incomplete_details.reason, 'interrupted');
+      const diagnostic = f.provider.diagnostics.records[0];
+      assert.equal(diagnostic.output_kind, 'incomplete'); assert.equal(diagnostic.incomplete_reason, reason);
+      assert.equal(diagnostic.turn_complete, false);
     } finally { await f.provider.close(); }
   }
+});
+
+test('opt-in diagnostics are content-free immutable and bounded across real HTTP replies', async t => {
+  const f = await start(t, (socket, message) => {
+    reply(socket, message, 'admitted');
+    reply(socket, message, 'result', {result: result({type: 'assistant', text: 'PRIVATE_CANARY'})});
+  }, 'smollm2-360m-v1', true);
+  try {
+    for (let n = 0; n < 17; n++) events(await send(f.provider, request()));
+    const value = f.provider.diagnostics;
+    assert.equal(value.records.length, 16); assert.equal(value.truncated, true);
+    assert(Object.isFrozen(value)); assert(Object.isFrozen(value.records));
+    for (const row of value.records) {
+      assert(Object.isFrozen(row));
+      assert.deepEqual(Object.keys(row).sort(), ['elapsed_ms', 'generated_tokens', 'incomplete_reason',
+        'output_kind', 'prompt_tokens', 'turn_complete']);
+      assert.equal(row.output_kind, 'assistant'); assert.equal(row.incomplete_reason, null);
+      assert.equal(row.turn_complete, true); assert.equal(row.prompt_tokens, 10); assert.equal(row.generated_tokens, 20);
+      assert(Number.isInteger(row.elapsed_ms) && row.elapsed_ms >= 0 && row.elapsed_ms <= 5000);
+    }
+    assert(!JSON.stringify(value).includes('PRIVATE_CANARY'));
+    assert.equal(f.provider.observations.completed, 17);
+  } finally { await f.provider.close(); }
 });
 
 test('invalid history, grammar, reasoning and unknown features reject without a submit or truncation', async t => {

@@ -129,8 +129,45 @@ def inside(parent):
     return subprocess.run(['/opt/node', '/opt/smoke_native_coding.cjs'], check=False, timeout=2470).returncode
 
 
+def check_native_diagnostics(value):
+    for key in ('turns_started', 'turns_completed'):
+        require(type(value[key]) is int and 0 <= value[key] <= 2, 'receipt-turn-count')
+    require(value['turns_completed'] <= value['turns_started'], 'receipt-turn-order')
+    counts = value['item_types']
+    require(type(counts) is dict and set(counts) == {'commandExecution', 'agentMessage', 'userMessage', 'reasoning', 'other'}
+            and all(type(n) is int and 0 <= n <= 64 for n in counts.values())
+            and sum(counts.values()) <= 64, 'receipt-item-counts')
+    diagnostic = value['response_diagnostics']
+    if diagnostic is None:
+        require(value['responses'] is None, 'receipt-diagnostics-missing')
+        return
+    require(type(diagnostic) is dict and set(diagnostic) == {'version', 'records', 'truncated'}
+            and type(diagnostic['version']) is int and diagnostic['version'] == 1
+            and type(diagnostic['truncated']) is bool and type(diagnostic['records']) is list
+            and len(diagnostic['records']) <= 16, 'receipt-response-diagnostics')
+    for row in diagnostic['records']:
+        require(type(row) is dict and set(row) == {'output_kind', 'prompt_tokens', 'generated_tokens',
+                'turn_complete', 'incomplete_reason', 'elapsed_ms'}
+                and row['output_kind'] in ('assistant', 'function_call', 'custom_tool_call', 'incomplete')
+                and type(row['turn_complete']) is bool
+                and row['turn_complete'] == (row['output_kind'] != 'incomplete')
+                and (row['incomplete_reason'] is None if row['turn_complete'] else
+                     row['incomplete_reason'] in ('token_limit', 'wire_truncated', 'invalid_output')),
+                'receipt-response-shape')
+        for key, minimum, maximum in (('prompt_tokens', 1, 12288), ('generated_tokens', 1, 1024),
+                                      ('elapsed_ms', 0, 3600000)):
+            require(type(row[key]) is int and minimum <= row[key] <= maximum, 'receipt-response-bound')
+    counters = value['responses']
+    require(counters is not None and len(diagnostic['records']) == min(16, counters['cleanup_confirmed'])
+            and diagnostic['truncated'] == (counters['cleanup_confirmed'] > 16), 'receipt-response-coverage')
+    if not diagnostic['truncated']:
+        require(sum(row['turn_complete'] for row in diagnostic['records']) == counters['completed']
+                and sum(not row['turn_complete'] for row in diagnostic['records']) == counters['incomplete'],
+                'receipt-response-correlation')
+
+
 def closed_receipt(path):
-    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 8192, 'receipt-bound')
+    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 16384, 'receipt-bound')
     value = json.loads(path.read_text())
     booleans = ('success', 'native_turn_completed', 'read', 'edit', 'test', 'independent_test_passed',
                 'unexpected_command', 'thread_unsubscribed', 'private_peer_execution_claimed',
@@ -139,9 +176,11 @@ def closed_receipt(path):
         'before_sha256', 'after_sha256', 'accepted_commands', 'declined_commands', 'responses',
         'runtime_exit', 'diagnostic'}
     require(isinstance(value, dict) and type(value.get('version')) is int
-            and value['version'] in (1, 2), 'receipt-version')
-    if value['version'] == 2:
+            and value['version'] in (1, 2, 3), 'receipt-version')
+    if value['version'] >= 2:
         keys.add('approval_denials')
+    if value['version'] == 3:
+        keys.update(('turns_started', 'turns_completed', 'item_types', 'response_diagnostics'))
     require(isinstance(value, dict) and set(value) == keys, 'receipt-schema')
     require(value['kind'] == 'native-codex-core-coding'
             and value['model'] == 'qwen3-0.6b-v1' and value['phase'] in PHASES
@@ -155,7 +194,7 @@ def closed_receipt(path):
             and value['general_coding_quality_claimed'] is False, 'receipt-scope')
     for key in ('accepted_commands', 'declined_commands'):
         require(type(value[key]) is int and 0 <= value[key] <= 16, 'receipt-count')
-    if value['version'] == 2:
+    if value['version'] >= 2:
         denials = value['approval_denials']
         require(isinstance(denials, dict) and set(denials) == set(APPROVAL_DENIALS)
                 and all(type(count) is int and 0 <= count <= 16 for count in denials.values())
@@ -166,6 +205,8 @@ def closed_receipt(path):
     require(counters is None or isinstance(counters, dict)
             and set(counters) == {'submitted', 'completed', 'incomplete', 'cleanup_confirmed'}
             and all(type(v) is int and 0 <= v <= 32 for v in counters.values()), 'receipt-responses')
+    if value['version'] == 3:
+        check_native_diagnostics(value)
     if value['success']:
         require(all(value[key] for key in ('native_turn_completed', 'read', 'edit', 'test',
                     'independent_test_passed', 'thread_unsubscribed'))
@@ -175,6 +216,10 @@ def closed_receipt(path):
                 and counters is not None and counters['completed'] >= 4 and counters['incomplete'] == 0
                 and counters['submitted'] == counters['completed'] == counters['cleanup_confirmed'],
                 'receipt-success-unproven')
+        if value['version'] == 3:
+            require(1 <= value['turns_started'] == value['turns_completed'] <= 2
+                    and value['response_diagnostics']['truncated'] is False
+                    and value['item_types']['commandExecution'] >= 3, 'receipt-native-task-unproven')
     return value
 
 

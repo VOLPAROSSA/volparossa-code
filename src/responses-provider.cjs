@@ -222,14 +222,17 @@ async function readBody(request) {
   catch (error) { throw error.message?.startsWith('private_compute_') ? error : fail('invalid_json'); }
 }
 
-async function startResponsesProvider({ socketPath, model }) {
+async function startResponsesProvider({ socketPath, model, diagnostics = false }) {
   expectedLimits(model);
+  check(typeof diagnostics === 'boolean', 'diagnostic_scope');
   // Construction checks path syntax, but creates no connection or model process.
   new PrivateConversation(socketPath);
   const bearerToken = randomBytes(32).toString('base64url');
   const authorization = Buffer.from(`Bearer ${bearerToken}`);
   let host, active = null, closing = false;
   const observed = {submitted: 0, completed: 0, incomplete: 0, cleanup_confirmed: 0};
+  const records = [];
+  let truncated = false;
   const server = http.createServer({ maxHeaderSize: 8192, headersTimeout: 5000, requestTimeout: 10000,
     keepAliveTimeout: 1000 }, (request, response) => {
     const received = Buffer.from(request.headers.authorization ?? '');
@@ -257,9 +260,18 @@ async function startResponsesProvider({ socketPath, model }) {
         check(caps.model_profile === model, 'model_mismatch');
         const conversation = toConversation(input, model, caps);
         observed.submitted++;
+        const started = performance.now();
         const result = await client.submit(conversation, { signal: controller.signal });
         observed.cleanup_confirmed++;
         if (result.turn_complete) observed.completed++; else observed.incomplete++;
+        if (diagnostics) {
+          if (records.length === 16) truncated = true;
+          else records.push(Object.freeze({ output_kind: result.output.type,
+            prompt_tokens: result.prompt_tokens, generated_tokens: result.generated_tokens,
+            turn_complete: result.turn_complete,
+            incomplete_reason: result.turn_complete ? null : result.output.reason,
+            elapsed_ms: Math.floor(performance.now() - started) }));
+        }
         if (controller.signal.aborted || response.destroyed) return;
         const events = responseEvents(result);
         // No partial model text or tool proposal leaves this process before the
@@ -285,6 +297,9 @@ async function startResponsesProvider({ socketPath, model }) {
   return { baseUrl: `http://${host}/v1`, bearerToken,
     // Content-free lifecycle counters for an explicitly started local owner.
     get observations() { return Object.freeze({...observed}); },
+    // Explicit native trial only. No output text, arguments, commands, IDs or paths.
+    get diagnostics() { return diagnostics ? Object.freeze({version: 1,
+      records: Object.freeze([...records]), truncated}) : null; },
     async close() {
       closing = true;
       const owner = active;

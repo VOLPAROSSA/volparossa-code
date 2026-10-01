@@ -6,8 +6,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
+const {EventEmitter} = require('node:events');
 const {MODEL, PROJECT, PROMPT_SHA256, modelCatalog, runtimeSettings, commandKind,
-  APPROVAL_DENIALS, approvalDenial, authorize} = require('../src/native-coding-fixture.cjs');
+  APPROVAL_DENIALS, approvalDenial, authorize, TASK, CONTINUATION, ITEM_TYPES,
+  NativeTaskController} = require('../src/native-coding-fixture.cjs');
 const root = path.join(__dirname, '..');
 
 function python(source) {
@@ -176,13 +178,101 @@ with tempfile.TemporaryDirectory() as temporary:
 
 test('native coding driver requires genuine app-server tools, core terminal cleanup and independent post-edit tests', () => {
   const source = fs.readFileSync(path.join(root, 'scripts/smoke_native_coding.cjs'), 'utf8');
-  for (const snippet of ['new AppServer(child.stdout, child.stdin', 'client.startTurn(threadId, TASK)',
-    "params.item?.type === 'commandExecution'", 'item.exitCode === 0', 'approvalDenial(params, threadId, turnId)',
+  const controller = fs.readFileSync(path.join(root, 'src/native-coding-fixture.cjs'), 'utf8');
+  for (const snippet of ['new AppServer(child.stdout, child.stdin', 'await controller.run()',
     "spawnSync('/usr/bin/python3', ['-B', '/opt/fixture.py', 'test']", 'report.responses.completed >= 4',
     'report.responses.submitted === report.responses.cleanup_confirmed', 'thread/unsubscribe']) assert(source.includes(snippet));
   assert(!/console\.(log|error)|fake|mockResponse/.test(source));
   assert(source.includes('private_peer_execution_claimed: false, general_coding_quality_claimed: false'));
-  assert(source.includes("kind === 'edit' && !report.read"));
+  assert(controller.includes("kind === 'edit' && !report.read"));
+  assert(controller.includes('item.exitCode === 0'));
+  assert(source.includes('}, 2400000)'));
+});
+
+function lifecycle(scripts) {
+  const report = {read: false, edit: false, test: false, unexpected_command: false,
+    native_turn_completed: false, accepted_commands: 0, declined_commands: 0,
+    approval_denials: Object.fromEntries(APPROVAL_DENIALS.map(key => [key, 0])),
+    turns_started: 0, turns_completed: 0, item_types: Object.fromEntries(ITEM_TYPES.map(key => [key, 0]))};
+  const client = new EventEmitter();
+  const inputs = [], interrupts = [];
+  const controller = new NativeTaskController(client, 'thread', report);
+  client.interrupt = async (...args) => { interrupts.push(args); };
+  const request = (turnId, kind) => ({kind: 'command', threadId: 'thread', turnId, itemId: 'synthetic',
+    cwd: PROJECT, command: kind === 'edit' ? "python3 -B /opt/fixture.py edit 'a + b'" : `python3 -B /opt/fixture.py ${kind}`});
+  client.startTurn = async (threadId, text) => {
+    inputs.push(text); const id = `turn-${inputs.length}`;
+    client.emit('notification', {method: 'turn/started', params: {threadId, turn: {id}}});
+    const item = value => client.emit('notification', {method: 'item/completed', params: {threadId, turnId: id, item: value}});
+    const action = kind => {
+      const proposed = request(id, kind);
+      const allowed = controller.approve(proposed);
+      item({...proposed, type: 'commandExecution', status: allowed ? 'completed' : 'declined', exitCode: allowed ? 0 : null});
+      return allowed;
+    };
+    const complete = (status = 'completed') => client.emit('notification', {
+      method: 'turn/completed', params: {threadId, turn: {id, status}}});
+    scripts[inputs.length - 1]({action, item, complete, request, id, controller, client});
+    return {turn: {id}};
+  };
+  return {controller, report, inputs, interrupts};
+}
+
+test('actual controller accepts early started/completed notifications and stops after one complete task', async () => {
+  const f = lifecycle([({action, item, complete}) => {
+    action('read'); action('edit'); action('test'); item({type: 'agentMessage', text: 'PRIVATE_CANARY'}); complete();
+  }]);
+  try { await f.controller.run(); } finally { f.controller.dispose(); }
+  assert.deepEqual(f.inputs, [TASK]);
+  assert.equal(f.report.turns_started, 1); assert.equal(f.report.turns_completed, 1);
+  assert.equal(f.report.item_types.commandExecution, 3); assert.equal(f.report.item_types.agentMessage, 1);
+  assert(!JSON.stringify(f.report).includes('PRIVATE_CANARY'));
+});
+
+test('one normal incomplete task continues in the same thread without a suggested fix', async () => {
+  const f = lifecycle([
+    ({action, complete}) => { action('read'); complete(); },
+    ({action, request, controller, complete}) => {
+      assert.equal(controller.approve(request('turn-1', 'edit')), false);
+      assert.equal(controller.report.approval_denials.lineage, 1);
+      action('edit'); action('test'); complete();
+    },
+  ]);
+  try { await f.controller.run(); } finally { f.controller.dispose(); }
+  assert.deepEqual(f.inputs, [TASK, CONTINUATION]);
+  assert(!/fixture.py|python|a\s*\+\s*b|exec_command/.test(CONTINUATION));
+  assert.equal(f.report.turns_completed, 2); assert.equal(f.report.accepted_commands, 3);
+});
+
+test('two normally completed but unfinished turns never fabricate success or schedule a third', async () => {
+  const f = lifecycle([({action, complete}) => { action('read'); complete(); },
+    ({complete, controller, request, id}) => {
+      complete();
+      assert.equal(controller.approve(request(id, 'edit')), false, 'ended turn cannot grant late authority');
+    }]);
+  try { await assert.rejects(f.controller.run(), /native_task_incomplete/); } finally { f.controller.dispose(); }
+  assert.equal(f.inputs.length, 2); assert.equal(f.report.edit, false); assert.equal(f.report.test, false);
+  assert.equal(f.report.native_turn_completed, true);
+});
+
+test('failed or interrupted native turns and transport EOF never cause continuation', async () => {
+  for (const state of ['failed', 'interrupted', 'eof']) {
+    const f = lifecycle([({complete, client}) => state === 'eof' ? client.emit('closed') : complete(state)]);
+    try { await assert.rejects(f.controller.run()); } finally { f.controller.dispose(); }
+    assert.equal(f.inputs.length, 1); assert.equal(f.report.native_turn_completed, false);
+  }
+});
+
+test('same approval budget spans both turns and revoked continuation performs no new turn', async () => {
+  const f = lifecycle([
+    ({action, complete}) => { for (let n = 0; n < 5; n++) action('read'); complete(); },
+    ({action, complete}) => { assert(action('edit')); assert.equal(action('test'), false); complete(); },
+  ]);
+  try { await assert.rejects(f.controller.run(), /native_task_incomplete/); } finally { f.controller.dispose(); }
+  assert.equal(f.report.accepted_commands, 6); assert.equal(f.report.approval_denials.budget, 1);
+  const stopped = lifecycle([({controller}) => { void controller.stop(); }]);
+  try { await assert.rejects(stopped.controller.run()); } finally { stopped.controller.dispose(); }
+  assert.equal(stopped.inputs.length, 1); assert.deepEqual(stopped.interrupts, [['thread', 'turn-1']]);
 });
 
 test('closed receipt rejects invented success and arbitrary text fields', () => {
@@ -221,6 +311,25 @@ with tempfile.TemporaryDirectory() as d:
  try:s['closed_receipt'](p)
  except ValueError:pass
  else:raise AssertionError('v2 counters missing')
+ v3=v2|dict(version=3,turns_started=2,turns_completed=2,
+   item_types=dict(commandExecution=1,agentMessage=1,userMessage=2,reasoning=0,other=0),
+   responses=dict(submitted=1,completed=1,incomplete=0,cleanup_confirmed=1),
+   response_diagnostics=dict(version=1,truncated=False,records=[dict(output_kind='assistant',
+    prompt_tokens=9000,generated_tokens=100,turn_complete=True,incomplete_reason=None,elapsed_ms=300000)]))
+ p.write_text(json.dumps(v3)); assert s['closed_receipt'](p)==v3
+ for change in ({'turns_started':3},{'turns_completed':True},{'response_diagnostics':None},
+                {'item_types':v3['item_types']|{'private':'PRIVATE_CANARY'}}):
+  p.write_text(json.dumps(v3|change))
+  try:s['closed_receipt'](p)
+  except ValueError:pass
+  else:raise AssertionError('unbounded diagnostics accepted')
+ for change in ({'output_kind':'PRIVATE_CANARY'},{'text':'PRIVATE_CANARY'},{'prompt_tokens':12289},
+                {'generated_tokens':1025},{'elapsed_ms':3600001},{'turn_complete':1}):
+  bad=v3|dict(response_diagnostics=v3['response_diagnostics']|dict(records=[v3['response_diagnostics']['records'][0]|change]))
+  p.write_text(json.dumps(bad))
+  try:s['closed_receipt'](p)
+  except ValueError:pass
+  else:raise AssertionError('private or unbounded diagnostic accepted')
 `);
   assert.match(PROMPT_SHA256, /^[a-f0-9]{64}$/);
 });

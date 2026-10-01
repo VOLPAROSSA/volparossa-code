@@ -74,7 +74,14 @@ new in-memory loopback bearer secret, not an OpenAI credential, and that secret 
 excluded from tool environments. Outside networking, telemetry, external tools,
 cloud login and automatic retries are disabled.
 
-The native turn is bounded to 40 minutes and at most six accepted fixture commands.
+The complete native task is bounded to 40 minutes and at most six accepted fixture
+commands across at most two native turns. A normally completed turn is not proof
+of a completed task: if observed read/edit/test actions are still missing, the
+same thread receives at most one neutral continuation asking to finish the
+original task. It does not supply an expression, command or answer. Failed,
+interrupted or disconnected turns do not trigger continuation. Turn correlation,
+approval ordering, the shared command budget and the original deadline remain in
+force; neither budgets nor permissions reset for the second turn.
 Every model request remains subject to the core's existing token, memory and
 600-second execution bounds. The separate two-turn core KVM fixture currently
 has a **1,400-second service window**, so this longer trial needs an explicitly
@@ -127,6 +134,28 @@ authorized under the corrected policy, while still returning `decline` for the
 probe itself: zero commands executed, clean native exit and unchanged host state.
 That after-fix protocol report SHA-256 is
 `1ba245d00f749c66ba1dd4af5500420d9be05c078d21f2db8fb8c57ba0d7abe6`.
+
+The original [run 36925945880](https://github.com/VOLPAROSSA/volparossa/actions/runs/36925945880)
+on core `ff2abe632a6779494301685014f89ec49aa2d259` / Code
+`eb48696eb37afb9cda59bffc350845309b963dbb` now completes an actual native read:
+one approval accepted, none declined, two real model responses completed and both
+worker cleanups confirmed. The native turn ends normally **without editing or
+testing**, so the task fails its actual-action assertion, before independent tests.
+Elapsed time is 790,763 ms and service CPU usage 1,559,652,831 microseconds;
+peak memory is 1,883,226,112 bytes with no OOM. No timeout or forced stop occurs,
+private/runtime cleanup passes and host state is unchanged. The original eight-file
+artifact SHA-256 is `6aafeaee20a247d05f0e334bad07ac630e810417719783f8c8d45138ac80abe4`.
+The second response's text was not retained; these counters do not establish why
+the model stopped or whether it attempted a tool in an unsupported text format.
+
+Receipt version 3 therefore adds opt-in, closed per-response diagnostics: output
+kind, prompt/generated token counts, completion/incomplete reason and elapsed
+time from submission through confirmed cleanup, at most 16 records. Fixed native
+completed-item type counters and started/completed turn counts distinguish model
+text, tool proposals and actual command events. They never retain text, commands,
+arguments, paths or identifiers. Historical version-1/2 receipts remain readable.
+The bounded continuation and these diagnostics have offline controller/protocol
+coverage, not a newly successful model-driven read/edit/test proof.
 
 Success requires the actual app-server's command-completion events, changed file
 hash, independent passing tests, at least four cleanup-confirmed real core

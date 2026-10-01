@@ -8,8 +8,8 @@ const assert = require('node:assert/strict');
 const {AppServer} = require('/opt/src/app-server.cjs');
 const {PrivateConversation} = require('/opt/src/private-conversation.cjs');
 const {startResponsesProvider} = require('/opt/src/responses-provider.cjs');
-const {MODEL, PROJECT, modelCatalog, runtimeSettings, commandKind, APPROVAL_DENIALS,
-  approvalDenial, TASK} = require('/opt/src/native-coding-fixture.cjs');
+const {MODEL, PROJECT, modelCatalog, runtimeSettings, APPROVAL_DENIALS,
+  ITEM_TYPES, NativeTaskController} = require('/opt/src/native-coding-fixture.cjs');
 const sha = data => createHash('sha256').update(data).digest('hex');
 
 async function main() {
@@ -18,25 +18,22 @@ async function main() {
   for (const key of ['HOME', 'CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL']) assert.equal(process.env[key], undefined);
   const original = fs.readFileSync(`${PROJECT}/arithmetic.py`);
   const instructions = fs.readFileSync('/opt/upstream-prompt.md', 'utf8');
-  const report = {version: 2, kind: 'native-codex-core-coding', success: false, phase: 'capabilities',
+  const report = {version: 3, kind: 'native-codex-core-coding', success: false, phase: 'capabilities',
     model: MODEL, full_native_prompt_sha256: sha(instructions), before_sha256: sha(original), after_sha256: null,
     native_turn_completed: false, read: false, edit: false, test: false, independent_test_passed: false,
     accepted_commands: 0, declined_commands: 0,
     approval_denials: Object.fromEntries(APPROVAL_DENIALS.map(reason => [reason, 0])),
+    turns_started: 0, turns_completed: 0,
+    item_types: Object.fromEntries(ITEM_TYPES.map(type => [type, 0])), response_diagnostics: null,
     unexpected_command: false, thread_unsubscribed: false,
     responses: null, private_peer_execution_claimed: false, general_coding_quality_claimed: false,
     runtime_exit: null, forced_stop: false, diagnostic: null};
-  let provider, child, client, exited, threadId, turnId, stopped = false, terminal = null, complete;
-  let nativeItems = 0, stderrBytes = 0;
-  const finished = new Promise(resolve => { complete = resolve; });
+  let provider, child, client, exited, threadId, controller;
+  let stderrBytes = 0;
   let deadline;
   async function stop() {
-    if (stopped) return;
-    stopped = true;
-    if (client && threadId && turnId) {
-      try { await client.interrupt(threadId, turnId); } catch {}
-    }
-    complete();
+    if (controller) await controller.stop();
+    else client?.close();
   }
   try {
     const preflight = new PrivateConversation('/opt/core/compute.sock');
@@ -47,14 +44,14 @@ async function main() {
       assert.equal(caps.local_only, true);
     } finally { preflight.close(); }
     fs.writeFileSync('/opt/catalog.json', JSON.stringify(modelCatalog(instructions)), {flag: 'wx', mode: 0o444});
-    provider = await startResponsesProvider({socketPath: '/opt/core/compute.sock', model: MODEL});
+    provider = await startResponsesProvider({socketPath: '/opt/core/compute.sock', model: MODEL, diagnostics: true});
     report.phase = 'launch';
     child = spawn('/opt/codex-app-server', ['--listen', 'stdio://', '--strict-config',
       ...runtimeSettings(provider.baseUrl).flatMap(value => ['-c', value])], {
       stdio: ['pipe', 'pipe', 'pipe'], env: {...process.env, VOLPAROSSA_PROVIDER_TOKEN: provider.bearerToken}});
     exited = new Promise(resolve => {
-      child.once('error', () => resolve({code: null, signal: 'spawn_failed'}));
-      child.once('close', (code, signal) => { complete(); resolve({code, signal}); });
+      child.once('error', () => { controller?.closed(); resolve({code: null, signal: 'spawn_failed'}); });
+      child.once('close', (code, signal) => { controller?.closed(); resolve({code, signal}); });
     });
     child.stderr.on('data', data => {
       stderrBytes += data.length;
@@ -62,47 +59,21 @@ async function main() {
     }); // Never store stderr, bearer tokens, model prompts, tool arguments or raw output.
     client = new AppServer(child.stdout, child.stdin, {timeoutMs: 30000, allowedModels: [MODEL], writableRoot: PROJECT,
       commandApproval(params) {
-        const kind = commandKind(params?.command);
-        const inOrder = kind === 'read' || kind === 'edit' && report.read || kind === 'test' && report.read && report.edit;
-        const denial = approvalDenial(params, threadId, turnId) ??
-          (!inOrder ? 'order' : report.accepted_commands >= 6 ? 'budget' : null);
-        const allowed = denial === null;
-        if (allowed) report.accepted_commands++;
-        else { report.declined_commands++; report.approval_denials[denial]++; }
+        if (controller) return controller.approve(params);
+        report.declined_commands++; report.approval_denials.lineage++;
         if (report.declined_commands > 2) void stop();
-        return allowed;
+        return false;
       }});
-    client.on('notification', ({method, params}) => {
-      if (params?.threadId !== threadId) return;
-      if (method === 'turn/started') {
-        if (turnId && turnId !== params.turn?.id) { void stop(); return; }
-        turnId = params.turn?.id;
-      }
-      if (method === 'item/completed' && params.item?.type === 'commandExecution') {
-        if (++nativeItems > 8) { void stop(); return; }
-        const item = params.item, kind = commandKind(item.command);
-        if (!kind || item.cwd !== PROJECT || kind === 'edit' && !report.read || kind === 'test' && !report.edit) {
-          report.unexpected_command = true; void stop(); return;
-        }
-        if (kind === 'edit') report.test = false;
-        if (item.status === 'completed' && item.exitCode === 0) report[kind] = true;
-      }
-      if (method === 'turn/completed' && params.turn?.id === turnId) { terminal = params.turn; complete(); }
-    });
-    client.on('closed', () => complete());
     report.phase = 'initialize'; await client.initialize();
     report.phase = 'thread-start';
     const started = await client.startThread({model: MODEL, cwd: PROJECT});
     assert.equal(started.model, MODEL); assert.equal(started.thread.modelProvider, 'volparossa');
     assert.equal(started.thread.ephemeral, true); assert.equal(started.cwd, PROJECT);
     threadId = started.thread.id;
+    controller = new NativeTaskController(client, threadId, report);
     report.phase = 'native-turn';
     deadline = setTimeout(() => { report.diagnostic = 'turn_deadline'; void stop(); }, 2400000);
-    const admitted = await client.startTurn(threadId, TASK);
-    if (turnId) assert.equal(turnId, admitted.turn.id); else turnId = admitted.turn.id;
-    await finished;
-    assert(!stopped && terminal?.status === 'completed' && !terminal.error);
-    report.native_turn_completed = true;
+    await controller.run();
     assert(report.read && report.edit && report.test && !report.unexpected_command);
     report.phase = 'independent-check';
     const checked = spawnSync('/usr/bin/python3', ['-B', '/opt/fixture.py', 'test'], {
@@ -124,11 +95,13 @@ async function main() {
   } finally {
     clearTimeout(deadline);
     if (!report.native_turn_completed) await stop();
+    controller?.dispose();
     client?.close();
     if (provider) {
       try { await provider.close(); }
       catch { report.diagnostic = 'provider_cleanup_unconfirmed'; }
       report.responses = provider.observations;
+      report.response_diagnostics = provider.diagnostics;
     }
     if (child) {
       let timer;
