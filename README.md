@@ -43,7 +43,8 @@ reported as success. There is no public-peer or OpenAI fallback.
 These first commands use the core directly. They are **not yet routed through
 Codex**. The separate app-server client implements the pinned NDJSON handshake,
 thread/turn requests, notifications and interruption, and declines tool approvals
-until an interactive approval layer is connected. Its focused protocol tests are
+by default. An explicit caller can supply a narrowly scoped per-command approval
+policy; the normal extension does not enable it. Its focused protocol tests are
 now complemented by a **real, source-built app-server lifecycle trial**:
 initialization, an ephemeral VOLPAROSSA-provider thread, exact unsubscribe and
 clean shutdown pass in disposable namespaces without OpenAI credentials or
@@ -57,6 +58,19 @@ a native-editor test or a measure of general coding quality.
 
 See the [explicit runtime build and native trial](docs/RUNTIME_BUILD.md). Nothing
 is downloaded or started merely by installing or activating the extension.
+
+The next [local Responses adapter](docs/RESPONSES_PROVIDER.md) now connects a
+bounded text/tool subset to the core's separate conversation interface. It retains
+call/result identities and waits for confirmed core cleanup before returning a
+completed turn. Its real HTTP/Unix-socket tests use synthetic model responses;
+the actual Codex/model/tool loop is **not proved yet**. The new Qwen conversation
+profile is a larger-context candidate, not evidence of reliable coding performance.
+
+An explicit [native coding trial](docs/NATIVE_CODING_TRIAL.md) now supplies the
+missing model catalog and disposable read/edit/test harness. It uses the full
+pinned Codex prompt, actual core inference and native tools, with approvals limited
+to one synthetic project. The harness is implemented and its offline checks pass;
+the actual model-driven coding trial is still pending.
 
 ## Try the development extension
 
@@ -81,12 +95,12 @@ npm run check
 
 ## Remaining integration work
 
-- Connect a genuine VOLPAROSSA coding-model/provider interface to the Codex
-  Responses/tool loop; the current bounded Q&A endpoint is not that interface.
+- Prove the new conversation/provider interface with an actual model and the
+  native Codex Responses/tool loop; the bounded Q&A endpoint stays separate.
 - Connect the built runtime to the extension and core provider, retaining its
   isolated configuration and upstream notices; never use the owner's OpenAI login
   or cloud fallback.
-- Add conversation/context support, typed tool calls, reviewable diffs and local
+- Complete native conversation/tool interoperability, reviewable diffs and local
   approvals, then prove an actual edit-and-test coding task end to end.
 - Delegate eligible work through the core's cooperative scheduler, with explicit
   privacy scope, cancellation, resource accounting and result provenance.
