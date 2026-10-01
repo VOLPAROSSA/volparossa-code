@@ -98,6 +98,95 @@ launcher rejected bubblewrap's own `PWD=/workspace`. Dedicated private staging
 and an exact namespace-local PWD check resolved those launch blockers without
 relaxing input ownership or importing host environment settings.
 
+A separate **actual VSCodium UI** probe also passed: F1/Command Palette, the
+capabilities view, the native-task input box, the consent dialog and clicking
+Cancel before runtime startup. There were zero automatic requests and exactly
+one capability request to a synthetic capability-only service. The editor exited
+normally; its private profile was removed and host network state was unchanged.
+This is UI admission evidence, **not** native inference or coding evidence:
+**Run once**, model-driven edits and the final task-result view remain unproven.
+
+## Disposable guest UI trial
+
+`scripts/smoke_editor_ui.cjs` drives the real editor UI; it does **not** start an
+editor, model, core service or VM. Execution requires `--execute --yes`, Linux
+hostname `volparossa-alpha`, user `vpci` and KVM virtualization. Do not run the
+model trial on the development host or bypass these guards.
+
+The supervising guest launcher must first provide:
+
+- The source-verified native runtime, complete upstream prompt and notices,
+  hash-verified Node 24 and VSCodium; reuse these assets, without downloading at
+  launch. VSCodium **1.135.06055**, commit
+  `1a46a584725d5dd330e0bcd7f5510f24990efcf2`, has actually opened a headless
+  workbench with `--ozone-platform=headless`; this version needs no Xvfb.
+- A **real** owner-private `qwen3-0.6b-v1` conversation service with verified model
+  and Python-runtime provenance: two threads, 600 seconds per request, a 5 GiB
+  memory cgroup, no swap and a 2,700-second service window. Preserve the worker's
+  existing RSS/admission limits; an out-of-memory or admission failure is not
+  permission to weaken them.
+- An isolated network/PID/mount/IPC environment, empty account home, no host
+  `DISPLAY`, Wayland, D-Bus or other host IPC mounts, and no inherited credentials.
+  Use an ordinary unprivileged user; **never add `--no-sandbox`**. Keep the core
+  socket and its parent at `0600`/`0700` and loopback CDP inside this environment.
+
+The examples below assume that environment exposes this extension at `/extension`,
+Node at `/opt/node`, and new owner-only directories under `/trial`. The project
+must already be empty and mode `0700`, with a name such as `editor-ui-project-01`.
+The reports directory must also be `0700`; output files must not already exist.
+
+```sh
+/opt/node /extension/scripts/smoke_editor_ui.cjs \
+  --prepare-project --execute --yes \
+  --project /trial/editor-ui-project-01 --output /trial/reports/prepare.json
+```
+
+Merge the explicit runtime/socket settings from the setup example into the
+isolated profile's `User/settings.json`, alongside:
+
+```json
+{
+  "window.dialogStyle": "custom",
+  "workbench.startupEditor": "none",
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+  "extensions.autoCheckUpdates": false,
+  "extensions.autoUpdate": false,
+  "security.workspace.trust.enabled": false
+}
+```
+
+The last setting is **only for this disposable, explicitly selected fixture**,
+not a recommended user default. Custom dialogs and English UI are required for
+the real DOM selectors. Start the prepared editor inside the same isolation:
+
+```sh
+/usr/share/codium/codium --new-window --ozone-platform=headless --disable-gpu \
+  --disable-updates --disable-telemetry --disable-crash-reporter --locale=en \
+  --user-data-dir=/trial/profile --extensions-dir=/trial/extensions \
+  --extensionDevelopmentPath=/extension --skip-welcome --skip-release-notes \
+  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+  /trial/editor-ui-project-01
+```
+
+Once its workbench is ready, run from a separate supervised process:
+
+```sh
+/opt/node /extension/scripts/smoke_editor_ui.cjs --execute --yes \
+  --cdp http://127.0.0.1:9222 --project /trial/editor-ui-project-01 \
+  --output /trial/reports/ui.json --timeout-seconds 2400
+```
+
+The driver requires the unchanged prepared fixture, enters a real task, clicks
+consent and approves only the bounded fixture commands. The model supplies the
+edit expression. Success requires actual recorded read/edit/test actions,
+unchanged helper code, a changed source file, an independent passing test and the
+UI result displayed after runtime cleanup. The receipt contains closed statuses,
+counts and hashes, not prompts, commands or private paths. **The full real-model
+UI trial has not yet passed.** The parent supervisor still owns editor/core/VM
+shutdown, private-profile/project removal and unchanged-host verification;
+`ui.json` does not claim that broader cleanup.
+
 The current prepared model is small; usable general coding quality is still to
 be measured. Reviewable native diffs, durable multi-turn sessions, additional
 tool types, broader platform support and eligible cooperative delegation remain
