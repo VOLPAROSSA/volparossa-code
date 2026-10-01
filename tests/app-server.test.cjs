@@ -126,3 +126,26 @@ test('failed or late approval policies cannot grant authority', async () => {
   late.client.close(); finish(true); await new Promise(resolve => setImmediate(resolve));
   assert(!late.sent.some(value => value.id === 'late'));
 });
+
+test('native execpolicy proposals receive only the one-shot accept or decline decision', async () => {
+  const {PROJECT, authorize} = require('../src/native-coding-fixture.cjs');
+  const f = fixture({writableRoot: PROJECT, commandApproval: params => authorize(params, 'thread', 'turn')});
+  try {
+    const init = f.client.initialize(); f.reply(1, {}); await init;
+    const params = {kind: 'command', threadId: 'thread', turnId: 'turn', itemId: 'synthetic_read_01',
+      environmentId: 'local', command: "/bin/bash -c 'python3 -B /opt/fixture.py read'", cwd: PROJECT,
+      proposedExecpolicyAmendment: ['python3', '-B', '/opt/fixture.py', 'read'],
+      availableDecisions: ['accept', {acceptWithExecpolicyAmendment: {
+        execpolicy_amendment: ['python3', '-B', '/opt/fixture.py', 'read']}}, 'cancel']};
+    for (const [id, change, decision] of [['observed', {}, 'accept'],
+      ['other-command', {command: 'python3 -B /opt/other.py read'}, 'decline'],
+      ['network', {networkApprovalContext: {host: 'private.invalid'}}, 'decline'],
+      ['other-turn', {turnId: 'old'}, 'decline']]) {
+      f.input.write(JSON.stringify({id, method: 'item/commandExecution/requestApproval', params: {...params, ...change}})+'\n');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(f.sent.at(-1), {id, result: {decision}});
+    }
+    assert(!JSON.stringify(f.sent).includes('acceptWithExecpolicyAmendment'));
+    assert(!JSON.stringify(f.sent).includes('acceptForSession'));
+  } finally { f.client.close(); }
+});

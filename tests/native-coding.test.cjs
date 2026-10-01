@@ -6,7 +6,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
-const {MODEL, PROJECT, PROMPT_SHA256, modelCatalog, runtimeSettings, commandKind, authorize} = require('../src/native-coding-fixture.cjs');
+const {MODEL, PROJECT, PROMPT_SHA256, modelCatalog, runtimeSettings, commandKind,
+  APPROVAL_DENIALS, approvalDenial, authorize} = require('../src/native-coding-fixture.cjs');
 const root = path.join(__dirname, '..');
 
 function python(source) {
@@ -62,12 +63,35 @@ test('fixture approvals bind exact thread, turn, path and one command; no networ
   const request = {kind: 'command', threadId: 'thread', turnId: 'turn', itemId: 'item', cwd: PROJECT,
     command: '/bin/bash -c "python3 -B /opt/fixture.py read"'};
   assert(authorize(request, 'thread', 'turn'));
-  for (const change of [{cwd: '/tmp'}, {kind: 'writeStdin'}, {threadId: 'foreign'}, {turnId: 'old'},
-    {command: 'rm -rf /'}, {networkApprovalContext: {}}, {additionalPermissions: {}},
-    {proposedExecpolicyAmendment: ['python3']}, {proposedNetworkPolicyAmendments: []}]) {
+  for (const [change, reason] of [[{cwd: '/tmp'}, 'cwd'], [{kind: 'writeStdin'}, 'kind'],
+    [{threadId: 'foreign'}, 'lineage'], [{turnId: 'old'}, 'lineage'], [{itemId: null}, 'item'],
+    [{itemId: 'x'.repeat(257)}, 'item'], [{command: 'rm -rf /'}, 'command'],
+    [{networkApprovalContext: {}}, 'network'], [{additionalPermissions: {}}, 'permissions'],
+    [{proposedNetworkPolicyAmendments: []}, 'network_policy']]) {
     assert.equal(authorize({...request, ...change}, 'thread', 'turn'), false);
+    assert.equal(approvalDenial({...request, ...change}, 'thread', 'turn'), reason);
+    assert(APPROVAL_DENIALS.includes(reason));
   }
   assert.equal(authorize(request, 'thread', null), false);
+  assert.equal(approvalDenial(null, 'thread', 'turn'), 'lineage');
+});
+
+test('observed native read proposal is not a request to persist execution policy', () => {
+  // Payload shape observed from exact native source 67727e7cf in isolated local
+  // protocol reproduction, with synthetic Responses and every action declined.
+  const request = {kind: 'command', threadId: 'thread', turnId: 'turn', itemId: 'synthetic_read_01',
+    startedAtMs: 1790884427876, environmentId: 'local',
+    command: "/bin/bash -c 'python3 -B /opt/fixture.py read'", cwd: PROJECT,
+    commandActions: [{type: 'unknown', command: 'python3 -B /opt/fixture.py read'}],
+    proposedExecpolicyAmendment: ['python3', '-B', '/opt/fixture.py', 'read'],
+    availableDecisions: ['accept', {acceptWithExecpolicyAmendment: {
+      execpolicy_amendment: ['python3', '-B', '/opt/fixture.py', 'read']}}, 'cancel']};
+  assert.equal(approvalDenial(request, 'thread', 'turn'), null);
+  assert.equal(authorize(request, 'thread', 'turn'), true);
+  // A proposed rule is never authority, even if it would cover another command.
+  assert.equal(authorize({...request, command: 'python3 -B /opt/other.py read'}, 'thread', 'turn'), false);
+  assert.equal(authorize({...request, additionalPermissions: {network: true}}, 'thread', 'turn'), false);
+  assert.equal(authorize({...request, threadId: 'another-owner'}, 'thread', 'turn'), false);
 });
 
 test('namespace command exposes exact socket/runtime/source inputs, not the host workspace or user home', () => {
@@ -153,7 +177,7 @@ with tempfile.TemporaryDirectory() as temporary:
 test('native coding driver requires genuine app-server tools, core terminal cleanup and independent post-edit tests', () => {
   const source = fs.readFileSync(path.join(root, 'scripts/smoke_native_coding.cjs'), 'utf8');
   for (const snippet of ['new AppServer(child.stdout, child.stdin', 'client.startTurn(threadId, TASK)',
-    "params.item?.type === 'commandExecution'", 'item.exitCode === 0', 'authorize(params, threadId, turnId)',
+    "params.item?.type === 'commandExecution'", 'item.exitCode === 0', 'approvalDenial(params, threadId, turnId)',
     "spawnSync('/usr/bin/python3', ['-B', '/opt/fixture.py', 'test']", 'report.responses.completed >= 4',
     'report.responses.submitted === report.responses.cleanup_confirmed', 'thread/unsubscribe']) assert(source.includes(snippet));
   assert(!/console\.(log|error)|fake|mockResponse/.test(source));
@@ -180,6 +204,23 @@ with tempfile.TemporaryDirectory() as d:
   try:s['closed_receipt'](p)
   except ValueError:pass
   else:raise AssertionError('unproven receipt accepted')
+ denials={reason:0 for reason in s['APPROVAL_DENIALS']}; denials['command']=1
+ v2=v|dict(version=2,declined_commands=1,approval_denials=denials)
+ p.write_text(json.dumps(v2)); assert s['closed_receipt'](p)==v2
+ for changes in ({'version':3},{'version':True},{'version':1},{'declined_commands':0},
+                 {'approval_denials':{}},{'approval_denials':denials|{'raw private command':1}},
+                 {'approval_denials':denials|{'command':True}},
+                 {'approval_denials':denials|{'command':-1}},
+                 {'approval_denials':denials|{'command':17}},
+                 {'approval_denials':denials|{'command':'private command'}}):
+  p.write_text(json.dumps(v2|changes))
+  try:s['closed_receipt'](p)
+  except ValueError:pass
+  else:raise AssertionError('invalid denial counters accepted')
+ p.write_text(json.dumps({k:value for k,value in v2.items() if k!='approval_denials'}))
+ try:s['closed_receipt'](p)
+ except ValueError:pass
+ else:raise AssertionError('v2 counters missing')
 `);
   assert.match(PROMPT_SHA256, /^[a-f0-9]{64}$/);
 });

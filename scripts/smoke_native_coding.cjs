@@ -8,7 +8,8 @@ const assert = require('node:assert/strict');
 const {AppServer} = require('/opt/src/app-server.cjs');
 const {PrivateConversation} = require('/opt/src/private-conversation.cjs');
 const {startResponsesProvider} = require('/opt/src/responses-provider.cjs');
-const {MODEL, PROJECT, modelCatalog, runtimeSettings, commandKind, authorize, TASK} = require('/opt/src/native-coding-fixture.cjs');
+const {MODEL, PROJECT, modelCatalog, runtimeSettings, commandKind, APPROVAL_DENIALS,
+  approvalDenial, TASK} = require('/opt/src/native-coding-fixture.cjs');
 const sha = data => createHash('sha256').update(data).digest('hex');
 
 async function main() {
@@ -17,10 +18,12 @@ async function main() {
   for (const key of ['HOME', 'CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL']) assert.equal(process.env[key], undefined);
   const original = fs.readFileSync(`${PROJECT}/arithmetic.py`);
   const instructions = fs.readFileSync('/opt/upstream-prompt.md', 'utf8');
-  const report = {version: 1, kind: 'native-codex-core-coding', success: false, phase: 'capabilities',
+  const report = {version: 2, kind: 'native-codex-core-coding', success: false, phase: 'capabilities',
     model: MODEL, full_native_prompt_sha256: sha(instructions), before_sha256: sha(original), after_sha256: null,
     native_turn_completed: false, read: false, edit: false, test: false, independent_test_passed: false,
-    accepted_commands: 0, declined_commands: 0, unexpected_command: false, thread_unsubscribed: false,
+    accepted_commands: 0, declined_commands: 0,
+    approval_denials: Object.fromEntries(APPROVAL_DENIALS.map(reason => [reason, 0])),
+    unexpected_command: false, thread_unsubscribed: false,
     responses: null, private_peer_execution_claimed: false, general_coding_quality_claimed: false,
     runtime_exit: null, forced_stop: false, diagnostic: null};
   let provider, child, client, exited, threadId, turnId, stopped = false, terminal = null, complete;
@@ -61,8 +64,11 @@ async function main() {
       commandApproval(params) {
         const kind = commandKind(params?.command);
         const inOrder = kind === 'read' || kind === 'edit' && report.read || kind === 'test' && report.read && report.edit;
-        const allowed = inOrder && report.accepted_commands < 6 && authorize(params, threadId, turnId);
-        if (allowed) report.accepted_commands++; else report.declined_commands++;
+        const denial = approvalDenial(params, threadId, turnId) ??
+          (!inOrder ? 'order' : report.accepted_commands >= 6 ? 'budget' : null);
+        const allowed = denial === null;
+        if (allowed) report.accepted_commands++;
+        else { report.declined_commands++; report.approval_denials[denial]++; }
         if (report.declined_commands > 2) void stop();
         return allowed;
       }});

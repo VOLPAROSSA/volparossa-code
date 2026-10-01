@@ -26,6 +26,8 @@ PHASES = ('capabilities', 'launch', 'initialize', 'thread-start', 'native-turn',
           'independent-check', 'unsubscribe', 'complete')
 DIAGNOSTICS = (None, 'stderr_bound', 'turn_deadline', 'native_coding_incomplete',
                'provider_cleanup_unconfirmed')
+APPROVAL_DENIALS = ('lineage', 'kind', 'item', 'cwd', 'command', 'network',
+                   'permissions', 'network_policy', 'order', 'budget')
 
 
 def require(value, code):
@@ -136,8 +138,12 @@ def closed_receipt(path):
     keys = set(booleans) | {'version', 'kind', 'phase', 'model', 'full_native_prompt_sha256',
         'before_sha256', 'after_sha256', 'accepted_commands', 'declined_commands', 'responses',
         'runtime_exit', 'diagnostic'}
+    require(isinstance(value, dict) and type(value.get('version')) is int
+            and value['version'] in (1, 2), 'receipt-version')
+    if value['version'] == 2:
+        keys.add('approval_denials')
     require(isinstance(value, dict) and set(value) == keys, 'receipt-schema')
-    require(value['version'] == 1 and value['kind'] == 'native-codex-core-coding'
+    require(value['kind'] == 'native-codex-core-coding'
             and value['model'] == 'qwen3-0.6b-v1' and value['phase'] in PHASES
             and value['diagnostic'] in DIAGNOSTICS and all(type(value[key]) is bool for key in booleans),
             'receipt-values')
@@ -149,6 +155,11 @@ def closed_receipt(path):
             and value['general_coding_quality_claimed'] is False, 'receipt-scope')
     for key in ('accepted_commands', 'declined_commands'):
         require(type(value[key]) is int and 0 <= value[key] <= 16, 'receipt-count')
+    if value['version'] == 2:
+        denials = value['approval_denials']
+        require(isinstance(denials, dict) and set(denials) == set(APPROVAL_DENIALS)
+                and all(type(count) is int and 0 <= count <= 16 for count in denials.values())
+                and sum(denials.values()) == value['declined_commands'], 'receipt-approval-denials')
     require(value['runtime_exit'] is None or type(value['runtime_exit']) is int
             and -255 <= value['runtime_exit'] <= 255, 'receipt-exit')
     counters = value['responses']

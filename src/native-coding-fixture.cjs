@@ -73,12 +73,28 @@ function commandKind(display) {
   return null;
 }
 
+const APPROVAL_DENIALS = Object.freeze(['lineage', 'kind', 'item', 'cwd', 'command',
+  'network', 'permissions', 'network_policy', 'order', 'budget']);
+
+// Closed reasons only: never return commands, paths, IDs or permission contents.
+function approvalDenial(params, threadId, turnId) {
+  if (!threadId || !turnId || !params || params.threadId !== threadId || params.turnId !== turnId) return 'lineage';
+  if (params.kind !== 'command') return 'kind';
+  if (typeof params.itemId !== 'string' || params.itemId.length > 256) return 'item';
+  if (params.cwd !== PROJECT) return 'cwd';
+  if (!commandKind(params.command)) return 'command';
+  if (params.networkApprovalContext) return 'network';
+  if (params.additionalPermissions) return 'permissions';
+  if (params.proposedNetworkPolicyAmendments) return 'network_policy';
+  // The pinned native runtime also proposes an execpolicy rule for ordinary
+  // commands. This is not an extra permission request: AppServer returns only
+  // one-shot "accept"/"decline", never acceptWithExecpolicyAmendment or session
+  // approval. Ignore the proposal; it neither authorizes nor changes a command.
+  return null;
+}
+
 function authorize(params, threadId, turnId) {
-  return Boolean(threadId && turnId && params && params.threadId === threadId && params.turnId === turnId &&
-    params.kind === 'command' && typeof params.itemId === 'string' && params.itemId.length <= 256 &&
-    params.cwd === PROJECT && commandKind(params.command) &&
-    !params.networkApprovalContext && !params.additionalPermissions &&
-    !params.proposedExecpolicyAmendment && !params.proposedNetworkPolicyAmendments);
+  return approvalDenial(params, threadId, turnId) === null;
 }
 
 const TASK = `Fix the add(a,b) function in the synthetic fixture, then verify it. Do not guess its current source.
@@ -90,4 +106,5 @@ Only these command forms are authorized, one at a time:
 The edit helper writes exactly your proposed expression, not a predetermined repair. It accepts only arithmetic.
 Read first, inspect the returned source, make the minimal edit, and run the actual tests. Finish only after tests pass.
 Do not execute other commands, request escalation, alter tests, use network, or invent tool results.`;
-module.exports = {MODEL, PROJECT, PROMPT_SHA256, modelCatalog, runtimeSettings, commandKind, authorize, TASK};
+module.exports = {MODEL, PROJECT, PROMPT_SHA256, modelCatalog, runtimeSettings, commandKind,
+  APPROVAL_DENIALS, approvalDenial, authorize, TASK};

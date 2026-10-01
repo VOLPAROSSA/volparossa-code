@@ -2,8 +2,8 @@
 
 This additive development harness connects the **actual pinned app-server** to
 the local Responses adapter and an already-running VOLPAROSSA Qwen conversation
-service. It is ready for an explicit real trial; **a successful native model-driven
-read/edit/test loop has not yet been observed**. Offline protocol/helper tests
+service. The real trial now reaches the native runtime and model, but **a successful
+native model-driven read/edit/test loop has not yet been observed**. Offline protocol/helper tests
 are not a substitute for that result.
 
 The ordinary extension and `AppServer` defaults remain unchanged: no automatic
@@ -84,6 +84,49 @@ read/edit/test action fails the trial visibly. No reclaims, restarts, silent inp
 truncation or canned answers turn those failures into success.
 
 ## Evidence and cleanup
+
+The original core [run 36913897403](https://github.com/VOLPAROSSA/volparossa/actions/runs/36913897403)
+on `527e8ac35d9a0c0e461f76fac17e97ed10a93db9`, with Code
+`7e35ba8d56df8ec43715119ceb0a1ae3f02f1f63`, successfully compiled and executed
+the pinned native app-server and made two real private-model requests. One
+response completed and one was incomplete; both confirmed worker cleanup. The
+driver declined one command approval and accepted none, so no read/edit/test
+action completed. The original closed receipt did not retain the rejection's
+reason or private command text. It does not prove why approval failed or which
+model-output condition caused the second incomplete result.
+
+Runtime exit was graceful, private state and services were cleaned up, no OOM
+occurred and host network state was unchanged. The original eight-file artifact
+SHA-256 is `0389a4754bd08470e815b2e452089ee933010711ca4bd3ddb02c1a6dbae002b4`.
+Preserve this as a failed coding trial, not a successful loop or evidence of
+general coding ability.
+
+A subsequent isolated, synthetic Responses protocol reproduction with the same
+pinned native source observed a canonical read approval carrying
+`proposedExecpolicyAmendment`. Every other exact fixture check matched; the
+previous policy rejected the request solely because that proposal existed.
+The local binary was `9635cc912ca720b1dd496ba34ca5be920ec46af4319d936a8aa5e59f57094e9f`,
+not the CI binary. The protocol report SHA-256 is
+`e58ea8b86b803821a1d7930e44a920c20ac2ccb2f12009c9da5ad252734af2dd`.
+Every command in that reproduction was declined, the native runtime exited
+cleanly, private state was removed and host network state was unchanged. This
+is protocol evidence, not inference or command-execution evidence, and does
+not reconstruct the original model's unretained approval payload.
+
+The correction treats the offered execpolicy rule as a proposal, not extra
+authority. Exact command, working-directory, thread/turn, action-kind, network
+and additional-permission checks remain. The adapter still emits only one-shot
+`accept` or `decline`, never session or persistent-rule approval, consistent
+with the [official app-server approval semantics](https://learn.chatgpt.com/docs/app-server#command-execution-approvals).
+Receipt version 2 adds only fixed denial-category counts (including ordering
+and command budget), whose sum equals declined approvals; it never retains
+commands, arguments, paths, identifiers or stderr. Historical version-1 receipts
+remain readable. A fresh actual model-driven coding trial remains required.
+The same isolated native protocol probe now evaluates the observed request as
+authorized under the corrected policy, while still returning `decline` for the
+probe itself: zero commands executed, clean native exit and unchanged host state.
+That after-fix protocol report SHA-256 is
+`1ba245d00f749c66ba1dd4af5500420d9be05c078d21f2db8fb8c57ba0d7abe6`.
 
 Success requires the actual app-server's command-completion events, changed file
 hash, independent passing tests, at least four cleanup-confirmed real core
