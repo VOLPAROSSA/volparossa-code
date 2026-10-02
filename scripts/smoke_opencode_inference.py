@@ -394,6 +394,23 @@ def closed_qemu(state, stderr):
             'stderr_class': category, 'stderr_bytes_observed': len(stderr), 'stderr_truncated': len(stderr) > 65536}
 
 
+def boot_running(state):
+    return state.get('ActiveState') == 'active' and str(state.get('MainPID', '')).isdigit() \
+        and int(state['MainPID']) > 0
+
+
+def qemu_command(tools, scratch):
+    return [tools / 'bin/qemu-system-x86_64', '-name', 'volparossa-opencode-inference', '-no-user-config', '-nodefaults',
+        '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '6144',
+        '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1,romfile=' + str(tools / 'root/usr/share/seabios/vgabios-stdvga.bin'),
+        '-drive', 'if=virtio,format=qcow2,file=' + str(scratch / 'overlay.qcow2'),
+        '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(scratch / 'seed.img'),
+        '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=net0',
+        '-netdev', 'user,id=net0,hostfwd=tcp:127.0.0.1:22223-:22', '-display', 'none', '-monitor', 'none',
+        '-serial', 'file:' + str(scratch / 'console.log'), '-no-reboot',
+        '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
+
+
 def validate_bundle(path):
     canonical(path)
     require(path.stat().st_size < 512 * 1024**2, 'bundle_bound')
@@ -511,14 +528,7 @@ def execute(args):
         available = available_memory()
         require(available >= 8 * GIB, 'host_available_memory_below_8GiB')
         receipt['host_available_bytes_at_launch'] = available
-        qemu = [bins / 'qemu-system-x86_64', '-name', 'volparossa-opencode-inference', '-no-user-config', '-nodefaults',
-            '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '6144',
-            '-drive', 'if=virtio,format=qcow2,file=' + str(scratch / 'overlay.qcow2'),
-            '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(scratch / 'seed.img'),
-            '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=net0',
-            '-netdev', 'user,id=net0,hostfwd=tcp:127.0.0.1:22223-:22', '-display', 'none', '-monitor', 'none',
-            '-serial', 'file:' + str(scratch / 'console.log'), '-no-reboot',
-            '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
+        qemu = qemu_command(args.tools, scratch)
         run(['systemd-run', '--user', '--quiet', '--unit=' + name, '--property=Type=exec',
             '--property=RemainAfterExit=yes',
             '--property=MemoryMax=' + str(7 * GIB), '--property=MemorySwapMax=0',
@@ -526,7 +536,7 @@ def execute(args):
             '--property=StandardOutput=null', '--property=StandardError=append:' + str(scratch / 'qemu.stderr'), *qemu], env=tool_env)
         launched, receipt['vm_started'], receipt['phase'] = True, True, 'guest-boot'
         state = unit_state()
-        require(state['ActiveState'] == 'active' and int(state['MainPID']) > 0, 'qemu_start')
+        require(boot_running(state), 'qemu_start')
         receipt['qemu_pid'] = int(state['MainPID'])
         receipt['owned_unit'] = name
         group = state['ControlGroup']
@@ -540,7 +550,7 @@ def execute(args):
         for _ in range(180):
             if ssh('true', timeout=10, check=False).returncode == 0:
                 break
-            require(unit_state()['ActiveState'] == 'active', 'qemu_exited')
+            require(boot_running(unit_state()), 'qemu_exited')
             time.sleep(1)
         else:
             raise ValueError('guest_boot_deadline')

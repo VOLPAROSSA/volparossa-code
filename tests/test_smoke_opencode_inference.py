@@ -75,6 +75,17 @@ class Contracts(unittest.TestCase):
         self.assertEqual(TRIAL.closed_exception(ValueError('qemu_exited'))['reason'], 'qemu_exited')
         self.assertEqual(TRIAL.closed_exception(ValueError('/private/canary'))['reason'], 'unclassified')
 
+    def test_headless_guest_retains_verified_vga_and_live_pid_without_more_resources(self):
+        args = TRIAL.qemu_command(Path('/verified/tools'), Path('/new/private/scratch'))
+        self.assertIn('VGA,id=video0,bus=pcie.0,addr=0x1,romfile=/verified/tools/root/usr/share/seabios/vgabios-stdvga.bin', args)
+        self.assertEqual(args[args.index('-display') + 1], 'none')
+        self.assertEqual(args[args.index('-m') + 1], '6144')
+        self.assertEqual(args[args.index('-smp') + 1], '2')
+        self.assertIn('-no-reboot', args)
+        self.assertFalse(TRIAL.boot_running(dict(ActiveState='active', MainPID='0')))
+        self.assertFalse(TRIAL.boot_running(dict(ActiveState='failed', MainPID='123')))
+        self.assertTrue(TRIAL.boot_running(dict(ActiveState='active', MainPID='123')))
+
 
 if __name__ == '__main__':
     unittest.main()
