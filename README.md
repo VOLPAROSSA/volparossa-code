@@ -12,6 +12,12 @@ apps, clients and editor integrations can share the same core connection. The
 first integration is a development extension for VS Code/VSCodium on Linux;
 cross-platform applications and packaging are not yet complete.
 
+This README describes the OpenCode development candidate tracked in
+[PR #5](https://github.com/VOLPAROSSA/volparossa-code/pull/5), not a completed
+coding assistant. Original integration code is GPL-3.0-only; upstream licenses
+and notices remain intact. This is not an OpenAI-backed service or a copy of
+its proprietary IDE extension.
+
 ## One coordinator, multiple cooperating agents
 
 ```mermaid
@@ -34,10 +40,14 @@ Network cooperation and collective improvement are the default design, including
 private projects. Core owns peer scheduling; OpenCode's local subagents do not
 themselves provide a decentralized network or confidential remote execution.
 
-Privacy belongs inside cooperation. Encrypted transport and task splitting alone
-do not hide code from the device doing ordinary inference. Code, prompts, tool
-output and history are not automatically public cache or training data. A local-only
-assistant does not fulfill the goal of the shared VOLPAROSSA brain.
+Privacy belongs inside cooperation. Private work must also be able to use suitable
+network executors without exposing source or tool data to their operators. That
+protected execution is **not implemented by the current local executor**: TLS,
+task fragmentation and peer signatures alone do not hide inputs from an ordinary
+executing host. Explicitly public task sharing is a separate capability, not proof
+of private distributed coding. Code, prompts, tool output and history are not
+automatically public cache or training data. A local-only assistant does not
+fulfill the goal of the shared VOLPAROSSA brain.
 
 ## Current executable integration
 
@@ -82,7 +92,15 @@ the network remain required functionality.
 The existing **Ask About Selected Code (Private, Local)** and **Show Compute
 Capabilities** commands remain available. Selected-code advice sends only the
 confirmed question and excerpt to the same-owner core socket. It does not change
-files or execute tools.
+files or execute tools. The direct Q&A interface allows **512 UTF-8 bytes for the
+question and 4096 for the selection**, subject to the selected model's smaller
+token budget. Oversized input is refused, not silently shortened; partial output
+and uncertain cancellation or cleanup are not presented as success.
+
+The separate [real core/model Q&A trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/36738995292)
+passes with the pinned private client and 360M model, including cancellation,
+isolation and cleanup checks. That remains evidence for the direct Q&A adapter,
+not the OpenCode read/edit/test loop, native editor UI or general coding quality.
 
 ## Development setup
 
@@ -103,11 +121,13 @@ notice and source pin are preserved in [third-party provenance](THIRD_PARTY_LICE
 ## Remaining work
 
 - Exercise the source-built OpenCode runtime with actual core inference and a
-  model-driven read/edit/test task, then verify native editor operation.
+  model-driven read/edit/test task with explicit local approvals and independently
+  checked results, then verify native editor operation.
 - Prove the connected cooperative tool with actual core/peer execution, then
   integrate its core dependency; retain original results, cancellation and provenance.
 - Implement remote conversation execution and actual protected private work,
-  with suitable model capacity and measured performance.
+  with suitable model capacity, measured performance and core-owned resource
+  accounting. Public sharing is not a substitute for private execution.
 - Join immune-policy admission, result review and approved shared learning to
   those paths; local approval dialogs alone do not provide that system.
 - Reuse suitable upstream clients on additional platforms and package verified
