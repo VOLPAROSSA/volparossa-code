@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const {PassThrough, Writable} = require('node:stream');
 const {configuration, ownedOpenCode} = require('../src/opencode-runtime.cjs');
-const {readFrames, writeFrame} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, emptyProviderDiagnostic} = require('../src/opencode-bridge.cjs');
 const READY = {type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false};
 const RESULT = {text: 'Synthetic answer.', commands: 1, nativeTurnCompleted: true, taskVerified: false};
 function child(t, program) {
@@ -141,4 +141,30 @@ test('second terminal response invalidates the owner receipt', async t => {
   const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
   await runtime.run('Task');
   await assert.rejects(runtime.close(), /opencode_runtime/);
+});
+test('closed primary failure and provider counters survive nonzero owner cleanup', async t => {
+  const diagnostics = emptyProviderDiagnostic();
+  diagnostics.submitted = 1; diagnostics.request_errors.execution_failed = 1;
+  const process = child(t, script(`if(frame.type==='run') send({type:'failed',reason:'opencode_task_native_error',
+    task_cleanup_failure:'session_cleanup_unconfirmed',
+    diagnostics:${JSON.stringify(diagnostics)}});`, {exitCode: 1}));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  await assert.rejects(runtime.run('Task'), error => error.code === 'opencode_task_native_error'
+    && error.taskCleanupFailure === 'session_cleanup_unconfirmed');
+  assert.deepEqual(runtime.diagnostics, diagnostics);
+  runtime.diagnostics.request_errors.execution_failed = 99;
+  assert.equal(runtime.diagnostics.request_errors.execution_failed, 1);
+  await assert.rejects(runtime.close(), /cleanup_unconfirmed/);
+});
+test('diagnostic frames reject private extra fields, unknown reasons and unbounded counts', async t => {
+  const diagnostics = emptyProviderDiagnostic();
+  for (const extra of [{reason: 'PRIVATE_CANARY'}, {task_cleanup_failure: 'PRIVATE_CANARY'},
+    {diagnostics: {...diagnostics, prompt: 'PRIVATE_CANARY'}},
+    {diagnostics: {...diagnostics, submitted: 65536}}]) {
+    const frame = {type: 'failed', reason: 'opencode_task_native_error', diagnostics, ...extra};
+    const process = child(t, script(`if(frame.type==='run') send(${JSON.stringify(frame)});`));
+    const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+    await assert.rejects(runtime.run('Task'), error => error.code === 'runtime_failed' && !error.message.includes('CANARY'));
+    await assert.rejects(runtime.close(), /cleanup_unconfirmed/);
+  }
 });

@@ -6,11 +6,12 @@ const assert = require('node:assert/strict');
 const {PassThrough} = require('node:stream');
 const {EventEmitter} = require('node:events');
 const {runSession} = require('../scripts/opencode_session.cjs');
-const {readFrames, writeFrame} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, emptyProviderDiagnostic} = require('../src/opencode-bridge.cjs');
 
 function fixture(Task, receive, options = {}) {
   const input = new PassThrough(), output = new PassThrough(), events = new EventEmitter(), observed = [];
   const provider = {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64),
+    diagnostics: {summary: emptyProviderDiagnostic()},
     observations: {submitted: 0, cleanup_confirmed: 0},
     async close() { observed.push('provider-close'); if (options.badCleanup) throw Error('private detail'); }};
   const hooks = {Task, preflight: async () => {}, provider: async () => provider,
@@ -94,4 +95,17 @@ test('inner owner enables public-snapshot tool only when proxy mount is present'
   class Task { async run() { return result; } }
   const f = fixture(Task, (_value, input) => input.end(), {cooperative: true});
   assert.equal(await f.done, 0);
+});
+test('task failure is a closed reason plus counters, never the private exception or a success', async () => {
+  for (const message of ['opencode_task_native_error', 'PRIVATE_CANARY']) {
+    class Task { async run() { throw Error(message); } }
+    let failed;
+    const f = fixture(Task, (value, input) => { failed = value; input.end(); });
+    assert.equal(await f.done, 1);
+    assert.equal(failed.type, 'failed');
+    assert.equal(failed.reason, message === 'PRIVATE_CANARY' ? 'task_or_runtime_failed' : message);
+    assert.deepEqual(failed.diagnostics, emptyProviderDiagnostic());
+    assert.ok(!JSON.stringify(failed).includes('PRIVATE_CANARY'));
+    assert(f.observed.includes('provider-close')); assert(f.observed.includes('SIGTERM'));
+  }
 });

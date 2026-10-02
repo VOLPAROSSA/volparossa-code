@@ -192,6 +192,11 @@ test('token exhaustion is length, while invalid/truncated wire never masquerades
       assert.equal(f.provider.observations.incomplete, 1);
       assert.equal(f.provider.observations.cleanup_confirmed, 1);
       assert.equal(f.provider.diagnostics.records[0].incomplete_reason, reason);
+      const summary = f.provider.diagnostics.summary;
+      assert.equal(summary.submitted, 1); assert.equal(summary.completed, 0);
+      assert.equal(summary.incomplete, 1); assert.equal(summary.cleanup_confirmed, 1);
+      assert.equal(summary.results.incomplete, 1); assert.equal(summary.incomplete_reasons[reason], 1);
+      assert.equal(summary.request_errors.invalid_model_output, reason === 'token_limit' ? 0 : 1);
     } finally { await f.provider.close(); }
   }
 });
@@ -309,6 +314,9 @@ test('large native-shaped system prompts pass unchanged and diagnostics remain c
     assert.ok(!JSON.stringify(f.provider.diagnostics).includes('PRIVATE_CANARY'));
     assert.equal(f.provider.diagnostics.records[0].turn_complete, true);
     assert.ok(Object.isFrozen(f.provider.diagnostics.records[0]));
+    assert.equal(f.provider.diagnostics.summary.results.assistant, 1);
+    assert.equal(f.provider.diagnostics.summary.completed, 1);
+    assert.ok(Object.isFrozen(f.provider.diagnostics.summary.request_errors));
     await Promise.all([f.provider.close(), f.provider.close()]);
   } finally { await f.provider.close(); }
 });

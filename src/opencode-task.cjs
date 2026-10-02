@@ -2,6 +2,7 @@
 'use strict';
 const path = require('node:path');
 const {validId, bounded} = require('./opencode-client.cjs');
+const {taskFailure} = require('./opencode-bridge.cjs');
 const MODEL = 'qwen3-0.6b-v1';
 const fail = code => Error(`opencode_task_${code}`);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -23,8 +24,10 @@ class OpenCodeTask {
     this.onEvent = event => {
       if (!this.active || this.stopped) return;
       if (++this.events > 10000) { this.error = fail('event_bound'); void this.stop(); return; }
-      this.queue = this.queue.then(() => this.event(event)).catch(() => {
-        this.error ??= fail('event'); void this.stop();
+      this.queue = this.queue.then(() => this.event(event)).catch(error => {
+        const code = taskFailure(error);
+        this.error ??= code === 'task_or_runtime_failed' ? fail('event') : Error(code);
+        void this.stop();
       });
     };
     this.onClose = () => { this.error ??= fail('connection'); this.stopped = true; this.cancelApproval(); };
@@ -135,7 +138,7 @@ class OpenCodeTask {
     const abort = () => { void this.stop(); };
     const timer = setTimeout(abort, timeoutMs); signal?.addEventListener('abort', abort, {once: true});
     this.client.on('event', this.onEvent); this.client.on('closed', this.onClose);
-    let outcome;
+    let outcome, primaryError;
     try {
       if (signal?.aborted || this.stopped) throw fail('cancelled');
       if (!this.client.ready) await this.client.connect();
@@ -165,6 +168,11 @@ class OpenCodeTask {
       }
       const text = texts.join('\n'); if (!bounded(text, 65536)) throw fail('output_bound');
       outcome = {text, commands: this.commands, nativeTurnCompleted: true, taskVerified: false};
+    } catch (error) {
+      // A native/event failure can itself abort the HTTP request. Preserve that
+      // first cause rather than replacing it with the resulting cancellation.
+      primaryError = this.error ?? error;
+      throw primaryError;
     } finally {
       clearTimeout(timer); signal?.removeEventListener('abort', abort);
       if (!outcome && this.session) await this.stop();
@@ -174,7 +182,12 @@ class OpenCodeTask {
       if (this.session) {
         let removed = false;
         try { removed = await this.client.deleteSession(this.session) === true; } catch {}
-        if (!removed) throw fail('cleanup_unconfirmed');
+        if (!removed) {
+          const cleanup = fail('cleanup_unconfirmed');
+          cleanup.code = primaryError ? taskFailure(primaryError) : 'opencode_task_cleanup_unconfirmed';
+          cleanup.taskCleanupFailure = 'session_cleanup_unconfirmed';
+          throw cleanup;
+        }
       }
     }
     return outcome;

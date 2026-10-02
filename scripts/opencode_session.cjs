@@ -12,7 +12,7 @@ const {OpenCodeTask} = require('../src/opencode-task.cjs');
 const {PrivateConversation} = require('../src/private-conversation.cjs');
 const {startChatCompletionsProvider} = require('../src/chat-completions-provider.cjs');
 const {runtimeSettings, MODEL} = require('../src/opencode-config.cjs');
-const {readFrames, writeFrame} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, taskFailure} = require('../src/opencode-bridge.cjs');
 const COOPERATIVE_SOCKET = '/opt/core/cooperative.sock';
 
 function cooperativeMounted() {
@@ -82,8 +82,13 @@ async function runSession({input, output, events = process}, hooks = {}) {
         Buffer.byteLength(value.prompt) > 65536) { broken(); return; }
     requested = true;
     running = task.run(value.prompt, {signal: abort.signal}).then(result => {
-      if (!closing) send({type: 'result', result});
-    }).catch(() => { bad = true; if (!closing) send({type: 'failed'}); });
+      if (!closing) send({type: 'result', result, diagnostics: provider?.diagnostics?.summary ?? null});
+    }).catch(error => {
+      bad = true;
+      if (!closing) send({type: 'failed', reason: taskFailure(error),
+        task_cleanup_failure: error?.taskCleanupFailure === 'session_cleanup_unconfirmed' ? 'session_cleanup_unconfirmed' : null,
+        diagnostics: provider?.diagnostics?.summary ?? null});
+    });
   }, broken);
   input.once('end', stop); input.once('close', stop); output.once('error', broken);
   for (const name of ['SIGTERM', 'SIGINT', 'SIGHUP']) events.once(name, broken);
@@ -96,7 +101,8 @@ async function runSession({input, output, events = process}, hooks = {}) {
       } finally { core.close(); }
     }))();
     if (closing) throw Error('closed');
-    provider = await (hooks.provider ?? startChatCompletionsProvider)({socketPath: '/opt/core/compute.sock', model: MODEL});
+    provider = await (hooks.provider ?? startChatCompletionsProvider)({socketPath: '/opt/core/compute.sock', model: MODEL,
+      diagnostics: true});
     const password = randomBytes(32).toString('hex');
     const cooperative = (hooks.cooperative ?? cooperativeMounted)();
     const settings = runtimeSettings({baseUrl: provider.baseUrl, bearerToken: provider.bearerToken, password, cooperative});

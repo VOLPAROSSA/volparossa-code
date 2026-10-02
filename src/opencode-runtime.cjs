@@ -2,9 +2,9 @@
 'use strict';
 const path = require('node:path');
 const {spawn} = require('node:child_process');
-const {readFrames, writeFrame, record} = require('./opencode-bridge.cjs');
+const {readFrames, writeFrame, record, isFailureCode, validProviderDiagnostic} = require('./opencode-bridge.cjs');
 const FIELDS = ['version', 'opencode', 'opencodeSha256', 'buildReport', 'node', 'nodeSha256', 'socketPath'];
-const fail = () => Error('opencode_runtime_unavailable_or_cleanup_unconfirmed');
+const fail = (code = 'runtime_failed') => Object.assign(Error('opencode_runtime_unavailable_or_cleanup_unconfirmed'), {code});
 function configuration(value, workspace) {
   if (!record(value) || value.version !== 1 || Object.keys(value).length !== FIELDS.length ||
       !FIELDS.every(key => Object.hasOwn(value, key))) throw fail();
@@ -21,6 +21,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
   if (![startupMs, closeMs, killMs, cancelMs].every(value => Number.isInteger(value) && value > 0 && value <= 60000) ||
       cancelMs > 45000) throw fail();
   let terminal, run, used = false, closing, settled = false, readyResolve, readyReject, protocolBad = false;
+  let diagnostics = null;
   function complete(error, result) {
     if (!run || run.finished) return;
     run.finished = true; clearTimeout(run.cancelTimer);
@@ -42,6 +43,10 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
       settled = true; readyResolve(); return;
     }
     if (!run || run.finished) { bad(); return; }
+    if (['result', 'failed'].includes(value.type) && value.diagnostics !== undefined) {
+      if (!validProviderDiagnostic(value.diagnostics)) { bad(); return; }
+      diagnostics = value.diagnostics;
+    }
     if (value.type === 'approval') {
       if (!Number.isSafeInteger(value.id) || value.id <= 0 || value.id <= run.lastApproval ||
           !record(value.proposal) || !['bash', 'edit'].includes(value.proposal.permission)) { bad(); return; }
@@ -67,7 +72,13 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
           typeof result.text !== 'string' || Buffer.byteLength(result.text) > 65536 ||
           !Number.isSafeInteger(result.commands) || result.commands < run.lastCommands || result.commands > 1024 || run.stopped) { bad(); return; }
       complete(null, result);
-    } else if (value.type === 'failed') complete(fail());
+    } else if (value.type === 'failed') {
+      if (value.reason !== undefined && !isFailureCode(value.reason)) { bad(); return; }
+      if (value.task_cleanup_failure != null && value.task_cleanup_failure !== 'session_cleanup_unconfirmed') { bad(); return; }
+      const error = fail(value.reason);
+      if (value.task_cleanup_failure) error.taskCleanupFailure = value.task_cleanup_failure;
+      complete(error);
+    }
     else bad();
   }, bad);
   child.stdin.on('error', bad);
@@ -109,6 +120,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
     try { writeFrame(child.stdin, {type: 'cancel'}); } catch { bad(); }
   };
   return {close, stop, execution: 'private_local', confidentialRemoteAvailable: false,
+    get diagnostics() { return diagnostics === null ? null : JSON.parse(JSON.stringify(diagnostics)); },
     async run(prompt, {signal, approve = async () => false, onStatus = () => {}} = {}) {
       if (used || terminal || protocolBad || typeof prompt !== 'string' || !prompt.trim() || prompt.includes('\0') ||
           Buffer.byteLength(prompt) > 65536 || typeof approve !== 'function' || typeof onStatus !== 'function') throw fail();
@@ -148,6 +160,7 @@ class OpenCodeRuntime {
       if (!publicTool) return runtime;
       let closing;
       return {...runtime, publicDelegation: publicTool.observations,
+        get diagnostics() { return runtime.diagnostics; },
         close() {
           closing ??= (async () => {
             const outcomes = await Promise.allSettled([runtime.close(), publicTool.close()]);

@@ -251,3 +251,13 @@ read/test commands and edits to the selected fixture can be approved. The report
 separate task execution, model provenance and guest/resource cleanup. Four
 JavaScript and five Python driver checks pass; these checks and a successfully
 packed source bundle are **not** evidence that the real-model trial passes.
+
+The completed `opencode-inference-vm-03` attempt provisioned the real Qwen model
+and observed five supervised worker results, but did not complete a native coding
+turn, edit or test. Its original task error was obscured by a subsequent
+`cleanup_unconfirmed` label; the guest units and QEMU were nevertheless stopped,
+private state removed and host route/DNS snapshots unchanged. The current driver
+preserves the first closed task-error category separately from session and runtime
+cleanup failures, plus bounded provider result/error counters. It exports no raw
+prompt, code, model answer or exception text. This diagnostic correction does not
+turn the original failed trial into a pass.

@@ -8,6 +8,7 @@ const os = require('node:os');
 const {createHash} = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const {OpenCodeRuntime} = require('../src/opencode-runtime.cjs');
+const {taskFailure} = require('../src/opencode-bridge.cjs');
 
 const ORIGINAL = 'def add(a, b):\n    return a - b\n';
 const TEST = 'import unittest\nfrom fixture import add\n\nclass AddTests(unittest.TestCase):\n'
@@ -18,6 +19,16 @@ const README = 'Disposable synthetic Python project. Fix fixture.py; keep test_f
 const hash = value => createHash('sha256').update(value).digest('hex');
 const ENV = {PATH: '/usr/bin:/bin', LANG: 'C.UTF-8'};
 const FILES = ['README.txt', 'fixture.py', 'test_fixture.py'];
+
+function retainFailure(evidence, error, aborted = false) {
+  evidence.failure ??= aborted ? 'cancelled_or_deadline' : taskFailure(error);
+  if (error?.taskCleanupFailure === 'session_cleanup_unconfirmed') evidence.task_cleanup_failure = error.taskCleanupFailure;
+}
+async function closeRuntime(evidence, runtime) {
+  evidence.provider_diagnostics = runtime.diagnostics ?? null;
+  try { await runtime.close(); evidence.runtime_cleanup_confirmed = true; }
+  catch { evidence.cleanup_failure = 'runtime_cleanup_unconfirmed'; }
+}
 
 // This is deliberately a parser for a small ordinary read/test command grammar,
 // not a shell sanitizer. The actual workspace is also network/mount isolated.
@@ -122,6 +133,7 @@ async function main(args = process.argv.slice(2)) {
   const staged = path.join(path.dirname(buildReport), 'opencode');
   if (await fs.stat(staged).then(s => s.isFile(), () => false)) config.opencode = staged;
   const evidence = {version: 1, kind: 'opencode-actual-core-task', passed: false, phase: 'prepare', failure: null,
+    cleanup_failure: null, task_cleanup_failure: null, provider_diagnostics: null,
     actual_native_turn_completed: false, synthetic_core_used: false, model_answers_injected: false,
     private_peer_execution_proven: false, general_coding_quality_proven: false,
     core_model_provenance_owned_by_parent: true, vm_cleanup_owned_by_parent: true,
@@ -170,24 +182,25 @@ async function main(args = process.argv.slice(2)) {
     assert.ok(evidence.actual_native_turn_completed && evidence.original_test_unchanged && evidence.fixture_changed
       && evidence.independent_test_passed && evidence.approved_edit >= 1 && evidence.approved_test >= 1 && evidence.refused === 0);
     evidence.phase = 'complete';
-  } catch {
-    evidence.failure = controller.signal.aborted ? 'cancelled_or_deadline' : 'task_or_runtime_failed';
+  } catch (error) {
+    retainFailure(evidence, error, controller.signal.aborted);
   } finally {
     clearTimeout(deadline);
     for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(name, interrupted);
     if (runtime) {
-      try { await runtime.close(); evidence.runtime_cleanup_confirmed = true; }
-      catch { evidence.failure = 'cleanup_unconfirmed'; }
+      await closeRuntime(evidence, runtime);
     }
     if (project) {
       try { await fs.rm(project, {recursive: true, force: false}); evidence.project_removed = true; }
-      catch { evidence.failure = 'cleanup_unconfirmed'; }
+      catch { evidence.cleanup_failure ??= 'project_cleanup_unconfirmed'; }
     }
     evidence.elapsed_ms = Date.now() - begin;
-    evidence.passed = evidence.phase === 'complete' && evidence.failure === null
+    evidence.passed = evidence.phase === 'complete' && evidence.failure === null && evidence.cleanup_failure === null
+      && evidence.task_cleanup_failure === null
       && evidence.runtime_cleanup_confirmed && evidence.project_removed;
     await fs.writeFile(output, JSON.stringify(evidence, null, 2) + '\n', {flag: 'wx', mode: 0o600});
-    process.stdout.write(JSON.stringify({phase: evidence.phase, passed: evidence.passed, failure: evidence.failure}) + '\n');
+    process.stdout.write(JSON.stringify({phase: evidence.phase, passed: evidence.passed, failure: evidence.failure,
+      cleanup_failure: evidence.cleanup_failure}) + '\n');
   }
   if (!evidence.passed) process.exitCode = 1;
   return evidence;
@@ -195,4 +208,4 @@ async function main(args = process.argv.slice(2)) {
 if (require.main === module) main().catch(() => {
   process.stderr.write('{"passed":false,"phase":"guard","failure":"guard_or_input_rejected"}\n'); process.exitCode = 1;
 });
-module.exports = {main, commandKind, approvalKind, ORIGINAL, TEST, guestGuard};
+module.exports = {main, commandKind, approvalKind, ORIGINAL, TEST, guestGuard, retainFailure, closeRuntime};

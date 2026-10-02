@@ -89,7 +89,24 @@ test('wrong lineage/model, truncated output and unconfirmed cleanup cannot count
 test('duplicate permission requests fail closed and no prompt is accepted twice', async () => {
   const client = new Client(async c => { tool(c); permission(c); permission(c); return answer(); });
   const task = new OpenCodeTask(client, async () => true);
-  await assert.rejects(task.run('Task'), /event/);
+  await assert.rejects(task.run('Task'), /permission_replay/);
   assert.equal(client.calls.filter(c => c[0] === 'permission').length, 1);
   await assert.rejects(task.run('Again'), /scope/);
+});
+test('first native failure survives its request cancellation and failed session deletion', async () => {
+  for (const removed of [true, false]) {
+    const client = new Client(async (c, {signal}) => {
+      const pending = new Promise((_, reject) => signal.addEventListener('abort',
+        () => reject(Error('opencode_cancelled')), {once: true}));
+      c.emit('event', {type: 'session.error', properties: {sessionID: 'ses_root', error: 'PRIVATE_CANARY'}});
+      return pending;
+    });
+    client.deleteSession = async () => removed;
+    await assert.rejects(new OpenCodeTask(client, async () => false).run('Task'), error => {
+      assert.equal(error.code ?? error.message, 'opencode_task_native_error');
+      assert.equal(error.taskCleanupFailure, removed ? undefined : 'session_cleanup_unconfirmed');
+      assert.ok(!error.message.includes('CANARY'));
+      return true;
+    });
+  }
 });

@@ -11,6 +11,7 @@ const { TextDecoder } = require('node:util');
 const { PrivateConversation, validateConversation, expectedLimits, check, keys, text,
   identifier, object, fail } = require('./private-conversation.cjs');
 const { parseJson } = require('./responses-provider.cjs');
+const { PROVIDER_ERRORS, emptyProviderDiagnostic } = require('./opencode-bridge.cjs');
 
 const HTTP_BYTES = 524288;
 const EXECUTION = Object.freeze({ scope: 'private_local', distributed: false,
@@ -212,7 +213,12 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
   let host, active = null, closing = false, closingPromise;
   const observed = { submitted: 0, completed: 0, incomplete: 0, cleanup_confirmed: 0 };
   const records = [];
+  const summary = emptyProviderDiagnostic();
   let truncated = false;
+  const count = (object, key) => {
+    if (object[key] < 65535) object[key]++;
+    else summary.truncated = true;
+  };
   const server = http.createServer({ maxHeaderSize: 8192, headersTimeout: 5000, requestTimeout: 10000,
     keepAliveTimeout: 1000 }, (request, response) => {
     const received = Buffer.from(request.headers.authorization ?? '');
@@ -241,11 +247,16 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
         const conversation = toConversation(requestBody, model, caps);
         if (controller.signal.aborted) throw fail('cancelled');
         observed.submitted++;
+        if (diagnostics) count(summary, 'submitted');
         const started = performance.now();
         const result = await client.submit(conversation, { signal: controller.signal });
         observed.cleanup_confirmed++;
         if (result.turn_complete) observed.completed++; else observed.incomplete++;
         if (diagnostics) {
+          count(summary, 'cleanup_confirmed');
+          count(summary, result.turn_complete ? 'completed' : 'incomplete');
+          count(summary.results, result.output.type);
+          if (!result.turn_complete) count(summary.incomplete_reasons, result.output.reason);
           if (records.length === 16) truncated = true;
           else records.push(Object.freeze({ output_kind: result.output.type,
             prompt_tokens: result.prompt_tokens, generated_tokens: result.generated_tokens,
@@ -264,6 +275,7 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
           .map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n' : JSON.stringify(answer));
       } catch (error) {
         const code = error.message?.startsWith('private_compute_') ? error.code : 'provider_failed';
+        if (diagnostics) count(summary.request_errors, PROVIDER_ERRORS.includes(code) ? code : 'other');
         const status = ['busy', 'cleanup_unconfirmed', 'socket_unavailable', 'execution_failed'].includes(code) ? 503 :
           ['invalid_model_output', 'tool_choice_not_met'].includes(code) ? 502 : code === 'request_bound' ? 413 : 400;
         errorReply(response, status, code);
@@ -281,7 +293,10 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
   return { baseUrl: `http://${host}/v1`, bearerToken, execution: EXECUTION,
     get observations() { return Object.freeze({ ...observed }); },
     get diagnostics() { return diagnostics ? Object.freeze({ version: 1,
-      records: Object.freeze([...records]), truncated }) : null; },
+      records: Object.freeze([...records]), truncated,
+      summary: Object.freeze({...summary, results: Object.freeze({...summary.results}),
+        incomplete_reasons: Object.freeze({...summary.incomplete_reasons}),
+        request_errors: Object.freeze({...summary.request_errors})}) }) : null; },
     close() {
       if (closingPromise) return closingPromise;
       closing = true;
