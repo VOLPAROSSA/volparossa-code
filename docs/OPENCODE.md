@@ -301,3 +301,25 @@ closed diagnostics do not identify the malformed output shape; raw output was
 not exported. The parallel-prompt conflict above is a verified integration issue,
 **not a proven explanation of this particular failure**. Its correction still
 requires a new real-model trial; VM04 remains failed.
+
+The manual `opencode-inference.yml` workflow adds an explicit GitHub-hosted
+Ubuntu 24.04 host-tool profile for that same trial. It requires the dispatched
+Code SHA, a clean checkout, the fixed core revision and newly verified runtime
+inputs. The guest task is unchanged: actual OpenCode/core/Qwen must request
+approved tool work, edit the disposable project and run its check. It is not
+a mocked provider or a private-peer execution proof.
+
+This profile checks KVM and effective user-cgroup limits before source-building
+OpenCode. It retains the 8 GiB admission threshold, 6 GiB/two-vCPU guest, 7 GiB
+cgroup, disabled swap and disposable cleanup. Only on the ephemeral CI host,
+official packages and narrowly scoped KVM ACL/AppArmor changes are permitted;
+the owned changes must be restored. Only closed provenance/result/cleanup
+receipts are exported. The existing pinned Debian workspace-tool path is
+unchanged. Twelve focused offline contracts and shell/syntax checks pass;
+successful hosted admission and actual coding remain to be demonstrated.
+
+For pre-merge testing, the identical manual workflow file must first exist on
+the default branch. Dispatch it on `feature/opencode-integration`, supplying
+that exact reviewed commit as `expected_code_sha`; dispatching an unprepared
+main branch cannot pass the source guard and must not install tools or launch
+a guest. There is no automatic inference run on push or pull request.

@@ -1,0 +1,130 @@
+name: Explicit OpenCode Qwen KVM inference
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_code_sha:
+        description: Exact reviewed 40-character Code commit dispatched (no branch substitution)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: explicit-opencode-qwen-inference
+  cancel-in-progress: false
+
+jobs:
+  inference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      EXPECTED_CODE_SHA: ${{ inputs.expected_code_sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: VOLPAROSSA/volparossa
+          ref: 708bcdd2960ae019579b1c4ce6991ed57653050c
+          path: build/ci-core
+          persist-credentials: false
+      - name: Require exact clean source and explicit hosted runner
+        run: |
+          set -euo pipefail
+          python3 -B scripts/opencode_ci.py source --core "$PWD/build/ci-core" --expected-code "$EXPECTED_CODE_SHA"
+      - name: Install official tools only on the disposable GitHub host
+        run: |
+          set -euo pipefail
+          python3 -B scripts/opencode_ci.py guard
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            qemu-system-x86 qemu-utils cloud-image-utils seabios openssh-client \
+            bubblewrap apparmor acl dbus-user-session curl jq util-linux build-essential git ca-certificates
+      - name: Admit user service with real KVM and unchanged resource limits
+        run: |
+          set -euo pipefail
+          python3 -B scripts/opencode_ci.py guard
+          test -c /dev/kvm
+          test "$(stat -c '%u' /dev/kvm)" = 0
+          umask 077
+          # Only this ephemeral device ACL, not world access or host networking.
+          getfacl -p /dev/kvm >build/ci-kvm-original.acl
+          sudo -n setfacl -m "u:$(id -u):rw" /dev/kvm
+          # Do not restart an existing user manager. The preflight fails closed
+          # if it cannot enforce limits; there is no system-service fallback.
+          if ! sudo -n systemctl is-active --quiet "user@$(id -u).service"; then
+            touch build/ci-user-manager-owned
+            sudo -n systemctl start "user@$(id -u).service"
+          fi
+          XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export XDG_RUNTIME_DIR
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >>"$GITHUB_ENV"
+          python3 -B scripts/opencode_ci.py preflight
+      - name: Source-build the pinned OpenCode runtime (no model)
+        timeout-minutes: 55
+        run: bash scripts/opencode_ci_build.sh
+      - name: Fetch exact public Node and Debian guest image
+        run: |
+          set -euo pipefail
+          python3 -B scripts/opencode_ci.py assets --core "$PWD/build/ci-core"
+          image_url=$(jq -er '.url' build/ci-core/tests/helper/debian13-amd64-image-v1.json)
+          image="$PWD/build/debian-13-genericcloud-amd64-20260826-2582.qcow2"
+          curl --fail --silent --show-error --location --connect-timeout 30 --max-time 1200 \
+            --max-filesize 2147483648 --max-redirs 3 --proto '=https' --proto-redir '=https' \
+            --output "$image" "$image_url"
+          chmod 0600 "$image"
+          printf '%s  %s\n' '184761b0dad0f9ace02f9298050ca96ce3caa39a461a47706d47ff9698b59933918b91b40177fbd4d392f6446af8b4d18ecb94caca988169b19641606bf34003' "$image" | sha512sum --check --strict -
+      - name: Pack immutable public source/runtime inputs
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CODE_SHA"
+          test -z "$(git status --porcelain)"
+          python3 -B scripts/smoke_opencode_inference.py pack --core "$PWD/build/ci-core" \
+            --node "$PWD/build/ci-node/bin/node" --output "$PWD/build/ci-inputs.tar.gz"
+          python3 -B scripts/opencode_ci.py capture
+      - name: One actual OpenCode core Qwen edit and test trial
+        timeout-minutes: 115
+        run: |
+          set -euo pipefail
+          # No Actions runtime credentials are inherited by QEMU or SSH.
+          env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
+            GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted RUNNER_OS=Linux \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_SHA="$GITHUB_SHA" \
+            XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+            python3 -B scripts/smoke_opencode_inference.py execute --yes --host-tools-profile github-ubuntu-24.04 \
+              --core "$PWD/build/ci-core" --tools /usr \
+              --image "$PWD/build/debian-13-genericcloud-amd64-20260826-2582.qcow2" \
+              --bundle "$PWD/build/ci-inputs.tar.gz" --output "$PWD/build/ci-vm"
+      - name: Restore only this job's device ACL and user manager
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B scripts/opencode_ci.py guard
+          if test -f build/ci-kvm-original.acl; then
+            sudo -n setfacl --restore=build/ci-kvm-original.acl
+            getfacl -p /dev/kvm | cmp build/ci-kvm-original.acl -
+          fi
+          if test -f build/ci-user-manager-owned; then
+            sudo -n systemctl stop "user@$(id -u).service"
+            test "$(sudo -n systemctl show "user@$(id -u).service" --property=ActiveState --value)" = inactive
+          fi
+          umask 077
+          printf '{"version":1,"owned_ci_host_changes_restored":true}\n' >build/ci-host-cleanup.json
+      - name: Collect only closed receipts (never VM, keys, model, or raw logs)
+        if: always()
+        run: python3 -B scripts/opencode_ci.py export
+      - name: Retain original closed evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opencode-qwen-${{ github.run_id }}-${{ github.sha }}
+          path: build/ci-public-receipts/*.json
+          if-no-files-found: error
+          retention-days: 14

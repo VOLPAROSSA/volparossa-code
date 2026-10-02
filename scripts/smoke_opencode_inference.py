@@ -399,10 +399,11 @@ def boot_running(state):
         and int(state['MainPID']) > 0
 
 
-def qemu_command(tools, scratch):
+def qemu_command(tools, scratch, firmware=None):
+    firmware = firmware or tools / 'root/usr/share/seabios/vgabios-stdvga.bin'
     return [tools / 'bin/qemu-system-x86_64', '-name', 'volparossa-opencode-inference', '-no-user-config', '-nodefaults',
         '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '6144',
-        '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1,romfile=' + str(tools / 'root/usr/share/seabios/vgabios-stdvga.bin'),
+        '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1,romfile=' + str(firmware),
         '-drive', 'if=virtio,format=qcow2,file=' + str(scratch / 'overlay.qcow2'),
         '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(scratch / 'seed.img'),
         '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=net0',
@@ -448,8 +449,16 @@ def execute(args):
     require(args.image.name == IMAGE_NAME and digest(args.image, 'sha512') == IMAGE_SHA512, 'image_pin')
     canonical(args.core)
     require(run(['git', '-C', args.core, 'rev-parse', 'HEAD'], text=True).stdout.strip() == CORE, 'core_revision')
-    run([sys.executable, '-B', args.core / 'tests/integration/browser-native-tools.py',
-         '--verify', '--output', canonical(args.tools)])
+    tools_profile = getattr(args, 'host_tools_profile', 'workspace-debian')
+    if tools_profile == 'github-ubuntu-24.04':
+        ci = module(ROOT / 'scripts/opencode_ci.py', 'opencode_ci_host')
+        host_tools = ci.verify_host_tools(canonical(args.tools))
+        require(load(ROOT / 'build/ci-host-tools.json') == host_tools, 'ci_host_tools_changed')
+    else:
+        require(tools_profile == 'workspace-debian', 'host_tools_profile')
+        run([sys.executable, '-B', args.core / 'tests/integration/browser-native-tools.py',
+             '--verify', '--output', canonical(args.tools)])
+        host_tools = None
     manifest = validate_bundle(args.bundle)
     # The host executes only this reviewed runner; guest code remains in KVM.
     require(manifest['files']['code/scripts/smoke_opencode_inference.py']['sha256'] == digest(Path(__file__)),
@@ -479,6 +488,9 @@ def execute(args):
         qemu_joined=False, scratch_removed=False, host_observed_routes_dns_unchanged=None,
         host_firewall_modified=False, actual_model_execution_proven=False,
         confidential_remote_execution_proven=False)
+    if host_tools is not None:
+        receipt['host_tools_profile'] = tools_profile
+        receipt['host_tools_sha256'] = hashlib.sha256(json.dumps(host_tools, sort_keys=True).encode()).hexdigest()
     control = ['systemctl', '--user']
     key, hostkey, known = scratch / 'ssh-key', scratch / 'host-key', scratch / 'known-hosts'
     ssh_options = ['-F', '/dev/null', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
@@ -528,7 +540,8 @@ def execute(args):
         available = available_memory()
         require(available >= 8 * GIB, 'host_available_memory_below_8GiB')
         receipt['host_available_bytes_at_launch'] = available
-        qemu = qemu_command(args.tools, scratch)
+        qemu = qemu_command(args.tools, scratch,
+                            Path('/usr/share/seabios/vgabios-stdvga.bin') if host_tools is not None else None)
         run(['systemd-run', '--user', '--quiet', '--unit=' + name, '--property=Type=exec',
             '--property=RemainAfterExit=yes',
             '--property=MemoryMax=' + str(7 * GIB), '--property=MemorySwapMax=0',
@@ -621,6 +634,8 @@ def main():
     modes.add_parser('guest')
     execution = modes.add_parser('execute')
     execution.add_argument('--yes', action='store_true')
+    execution.add_argument('--host-tools-profile', choices=('workspace-debian', 'github-ubuntu-24.04'),
+                           default='workspace-debian')
     for name in ('core', 'tools', 'image', 'bundle', 'output'):
         execution.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
