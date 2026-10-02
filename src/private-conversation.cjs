@@ -56,18 +56,30 @@ function equalLimits(value, expected, optional = []) {
   keys(value, Object.keys(expected), optional);
   check(Object.entries(expected).every(([key, item]) => value[key] === item), 'incompatible_capabilities');
 }
-function capabilities(value) {
+function capabilities(value, generationPolicyVersion) {
   check(object(value));
+  const generation = generationPolicyVersion === 1 ? ['generation_policy_version', 'generation_policies'] : [];
   equalLimits(value, { ...expectedLimits(value.model_profile), execution_slots: 1,
-    max_request_bytes: requestLimit(value.model_profile), max_response_bytes: 65536 }, ['max_seconds', 'quarantined']);
+    max_request_bytes: requestLimit(value.model_profile), max_response_bytes: 65536 }, ['max_seconds', 'quarantined', ...generation]);
   check(Number.isInteger(value.max_seconds) && value.max_seconds >= 1 && value.max_seconds <= 600 &&
     typeof value.quarantined === 'boolean', 'incompatible_capabilities');
+  if (generationPolicyVersion === 1) {
+    const expected = value.model_profile === 'qwen3-0.6b-v1' ? ['greedy_v1'] : [];
+    check(value.generation_policy_version === 1 && Array.isArray(value.generation_policies) &&
+      JSON.stringify(value.generation_policies) === JSON.stringify(expected), 'unsupported_generation_policy');
+    Object.freeze(value.generation_policies);
+  }
   return Object.freeze(value);
 }
 
 function validateConversation(value, limits = expectedLimits('smollm2-360m-v1')) {
-  keys(value, ['version', 'visibility', 'instructions', 'history', 'tools']);
+  keys(value, ['version', 'visibility', 'instructions', 'history', 'tools'], ['generation_policy']);
   check(value.version === 1 && value.visibility === 'private_local');
+  if (Object.hasOwn(value, 'generation_policy')) {
+    check(value.generation_policy === 'greedy_v1' && limits.model_profile === 'qwen3-0.6b-v1' &&
+      limits.generation_policy_version === 1 && limits.generation_policies?.includes('greedy_v1'),
+    'unsupported_generation_policy');
+  }
   text(value.instructions, limits.max_instructions_bytes);
   check(Array.isArray(value.history) && value.history.length >= 1 && value.history.length <= limits.max_history_items &&
     Array.isArray(value.tools) && value.tools.length <= limits.max_tools);
@@ -115,7 +127,12 @@ function validateCall(item, tools, seen) {
 function validateResult(value, caps, input) {
   keys(value, ['version', 'operation', 'model_profile', 'execution_complete', 'turn_complete', 'output',
     'prompt_tokens', 'generated_tokens', 'limits', 'local_only', 'private_data_supported', 'tool_execution',
-    'distributed_execution_claimed', 'private_training_claimed', 'model_answer_correctness_proven', 'cleanup']);
+    'distributed_execution_claimed', 'private_training_claimed', 'model_answer_correctness_proven', 'cleanup'],
+  Object.hasOwn(input, 'generation_policy') ? ['generation_policy'] : []);
+  if (Object.hasOwn(input, 'generation_policy')) {
+    validateConversation(input, caps);
+    check(value.generation_policy === input.generation_policy, 'generation_policy_mismatch');
+  }
   keys(value.cleanup, ['complete', 'retained_input', 'retained_report']);
   check(value.cleanup.complete === true && value.cleanup.retained_input === false &&
     value.cleanup.retained_report === false, 'cleanup_unconfirmed');
@@ -144,12 +161,18 @@ function validateResult(value, caps, input) {
 }
 
 class PrivateConversation extends PrivateCompute {
+  constructor(socketPath, { generationPolicyVersion } = {}) {
+    super(socketPath);
+    check(generationPolicyVersion === undefined || generationPolicyVersion === 1, 'unsupported_generation_policy');
+    this.generationPolicyVersion = generationPolicyVersion;
+  }
   // These hooks reuse only the already-tested transport. Q&A callers and bytes
   // remain unchanged; this instance cannot silently use the old handshake.
   _send(id, operation) {
     // The separate conversation family may advertise a larger request envelope;
     // the legacy Q&A class and its 32KiB framing remain byte-for-byte unchanged.
-    if (operation.type === 'capabilities') operation = { type: 'conversation_capabilities' };
+    if (operation.type === 'capabilities') operation = { type: 'conversation_capabilities',
+      ...(this.generationPolicyVersion === 1 ? { generation_policy_version: 1 } : {}) };
     try {
       const body = Buffer.from(JSON.stringify({ version: 1, id, operation }));
       check(body.length > 0 && body.length <= (this.caps?.max_request_bytes ?? 32768), 'request_bound');
@@ -184,7 +207,7 @@ class PrivateConversation extends PrivateCompute {
     if (message.event === 'conversation_capabilities') {
       keys(message, ['version', 'id', 'event', 'capabilities']);
       check(this.state === 'connecting' && message.id === this.handshake?.id, 'invalid_response');
-      this.caps = capabilities(message.capabilities);
+      this.caps = capabilities(message.capabilities, this.generationPolicyVersion);
       this.state = 'open';
       clearTimeout(this.handshake.timer);
       this.handshake.resolve(this.caps);

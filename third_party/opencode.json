@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "repository": "https://github.com/anomalyco/opencode",
+  "tag": "v1.18.34",
+  "commit": "aec0b9a6d8898f68f923aaf08b7306d931fd9d76",
+  "license": "MIT",
+  "license_sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
+  "bun": "1.3.14",
+  "bun_lock_sha256": "04483150cfabd37bedae4055036cd7a665e3471053adad343cb1ccfbbca6c79c",
+  "config_source_sha256": "87a9071af1ddb04d65947dba49be3fb4c94ecf63e120f17ce46ee81ff25dd45a",
+  "local_patch": "patches/opencode-no-runtime-installs.patch",
+  "compatible_provider": "@ai-sdk/openai-compatible@2.0.41",
+  "api": "authenticated HTTP and SSE; provider Chat Completions",
+  "native_execution_verified": false,
+  "confidential_remote_execution_verified": false
+}

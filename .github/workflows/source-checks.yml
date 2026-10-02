@@ -25,6 +25,8 @@ jobs:
         run: npm test
       - name: Check offline source-build contract
         run: python3 -B -m unittest discover -s tests -p 'test_build_codex_runtime.py'
+      - name: Check OpenCode source-build and namespace contracts
+        run: python3 -B -m unittest discover -s tests -p 'test_*opencode*.py'
 
-# No dependency installation, Codex/model download, real inference, editor
+# No dependency installation, runtime/model download, real inference, editor
 # installation or privileged service startup. These are source/protocol checks.

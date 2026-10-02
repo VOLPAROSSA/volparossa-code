@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const {register, selectionInput} = require('../src/extension.cjs');
 
-function fixture({trusted = true, confirm = true, partial = false} = {}) {
+function fixture({trusted = true, confirm = true, partial = false, native} = {}) {
   const commands = new Map(), calls = [], documents = [], errors = [];
   const context = {subscriptions: []};
   const editor = {selection: {isEmpty: false}, document: {uri: {scheme: 'file'},
@@ -29,7 +29,7 @@ function fixture({trusted = true, confirm = true, partial = false} = {}) {
       async withProgress(_options, action) { return action({}, {isCancellationRequested: false,
         onCancellationRequested() { return {dispose() {}}; }}); }}
   };
-  register(api, context, Client);
+  register(api, context, Client, native);
   return {commands, calls, documents, errors, api, context};
 }
 test('activation has no compute side effects and configuration cannot be redirected by the workspace', async () => {
@@ -63,5 +63,137 @@ test('manifest declares trust and machine scope without telemetry, accounts or a
   const value = JSON.parse(readFileSync(new URL('../package.json', `file://${__filename}`)));
   assert.equal(value.capabilities.untrustedWorkspaces.supported, false);
   assert.equal(value.contributes.configuration.properties['volparossaCode.privateSocket'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.openCodeRuntime'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.publicSocket'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.nativeRuntime'], undefined);
   assert.equal(value.dependencies, undefined); assert.equal(value.activationEvents, undefined);
+});
+
+function codingFixture({delegation} = {}) {
+  const events = [];
+  const native = {
+    Runtime: {async start(config, options) {
+      events.push(['launch', config, options]);
+      return {publicDelegation: delegation, async close() { events.push(['cleanup']); },
+        async run(prompt, {approve, onStatus}) {
+          events.push(['task', prompt]);
+          assert.equal(await approve({permission: 'bash', command: 'node --test', directory: '.'}), true);
+          onStatus({commands: 1, status: 'completed'});
+          return {text: 'Generated reply', commands: 1, nativeTurnCompleted: true, taskVerified: false};
+        },
+        async stop() { events.push(['stop']); },
+      };
+    }},
+  };
+  const f = fixture({native});
+  f.api.workspace.workspaceFolders = [{name: 'project', uri: {scheme: 'file', fsPath: '/projects/selected'}}];
+  f.api.workspace.getConfiguration = () => ({inspect: key => ({
+    globalValue: key === 'privateSocket' ? '/run/owner/conversation.sock' : {version: 1, opencode: '/explicit/runtime'},
+    workspaceValue: key === 'privateSocket' ? '/tmp/untrusted.sock' : {opencode: '/project/untrusted-runtime'}
+  })});
+  f.api.window.showInformationMessage = async (_text, _options, action) => action;
+  f.api.window.showWarningMessage = async (text, options, action) => {
+    events.push(['approval', text, options]); return action;
+  };
+  f.api.window.withProgress = async (_options, action) => action({report(value) { events.push(['progress', value]); }}, {
+    isCancellationRequested: false, onCancellationRequested() { return {dispose() {}}; }
+  });
+  return {...f, events, native};
+}
+
+test('explicit coding command launches only user-selected inputs, asks one-shot approval and waits for cleanup', async () => {
+  const f = codingFixture(); assert.deepEqual(f.events, []);
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.events[0], ['launch', {version: 1, opencode: '/explicit/runtime', socketPath: '/run/owner/conversation.sock'},
+    {workspace: '/projects/selected'}]);
+  assert(f.events.find(e => e[0] === 'approval')[1].includes('node --test'));
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
+  assert.equal(f.documents[0].language, 'plaintext');
+  assert.match(f.documents[0].content, /not independently verified/);
+  assert.match(f.documents[0].content, /Generated reply/); assert.deepEqual(f.errors, []);
+});
+
+test('terminal public responses are not presented as complete peer answers', async () => {
+  const f = codingFixture({delegation: {submitted: 1, completed: 1, cleanup_confirmed: true}});
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.errors, []);
+  assert.match(f.documents[0].content, /terminal responses: 1/);
+  assert.match(f.documents[0].content, /Terminal responses may contain incomplete answers/);
+  assert.doesNotMatch(f.documents[0].content, /; completed: 1/);
+});
+
+test('cancelled consent, remote, untrusted and missing folders never launch a native runtime', async () => {
+  for (const configure of [f => { f.api.window.showInformationMessage = async () => undefined; },
+    f => { f.api.env.remoteName = 'ssh-remote'; }, f => { f.api.workspace.isTrusted = false; },
+    f => { f.api.workspace.workspaceFolders = []; }]) {
+    const f = codingFixture(); configure(f);
+    await f.commands.get('volparossaCode.codingTask')(); assert.deepEqual(f.events, []);
+  }
+});
+
+test('runtime cleanup failure never displays a successful coding result or raw private error', async () => {
+  const f = codingFixture();
+  f.native.Runtime.start = async () => ({async run() { return {text: 'unreleased', commands: 0}; },
+    async close() { throw Error('private-token-and-path'); }});
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.documents, []); assert.equal(f.errors.length, 1);
+  assert(!f.errors[0].includes('private-token-and-path'));
+});
+
+test('deactivation during native startup closes the new runtime without beginning a task', async () => {
+  const f = codingFixture(); let joined = false;
+  f.native.Runtime.start = async () => {
+    f.context.subscriptions.at(-1).dispose();
+    return {async close() { joined = true; }};
+  };
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.equal(joined, true); assert.deepEqual(f.events, []); assert.deepEqual(f.documents, []);
+});
+
+test('deactivation while progress callback is queued cannot begin native inference', async () => {
+  const f = codingFixture();
+  f.api.window.withProgress = async (_options, action) => {
+    f.context.subscriptions.at(-1).dispose();
+    return action({}, {});
+  };
+  await f.commands.get('volparossaCode.codingTask')();
+  assert(!f.events.some(e => e[0] === 'task'));
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
+  assert.deepEqual(f.documents, []);
+});
+
+test('public coding enrollment contains only the exact reviewed excerpt and public question', async () => {
+  const f = codingFixture(), opaque = Object.freeze({}), enrollments = [];
+  const original = f.api.workspace.getConfiguration;
+  f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
+    ? {globalValue: '/run/owner/public.sock', workspaceValue: '/tmp/attacker.sock'}
+    : original().inspect(key)});
+  const questions = ['Review this public function.', 'Private task context must stay with the local model.'];
+  f.api.window.showInputBox = async () => questions.shift();
+  f.api.window.showQuickPick = async values => { assert(values.includes('GPL-3.0-only')); return 'GPL-3.0-only'; };
+  f.native.createPublicSnapshot = value => { enrollments.push(value); return opaque; };
+  await f.commands.get('volparossaCode.codingPublicTask')();
+  assert.deepEqual(enrollments, [{question: 'Review this public function.', context: 'const answer = 42;',
+    license: 'GPL-3.0-only', public_content: true, rights_confirmed: true}]);
+  const launch = f.events.find(event => event[0] === 'launch');
+  assert.deepEqual(launch[2].cooperation, {socketPath: '/run/owner/public.sock', snapshot: opaque});
+  assert.equal(launch[1].cooperativeSocketPath, undefined);
+  assert(f.events.find(event => event[0] === 'task')[1].includes('volparossa_delegate_public'));
+  assert(f.documents[0].content.includes('Exact selected code:\nconst answer = 42;'));
+  assert(!JSON.stringify(enrollments).includes('Private task'));
+  assert.deepEqual(f.errors, []);
+});
+
+test('public snapshot cancellation or invalid socket cannot launch or authorize sharing', async () => {
+  for (const missing of [false, true]) {
+    const f = codingFixture();
+    const original = f.api.workspace.getConfiguration;
+    f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
+      ? {globalValue: missing ? '' : '/run/owner/public.sock'} : original().inspect(key)});
+    f.api.window.showQuickPick = async () => 'GPL-3.0-only';
+    f.api.window.showWarningMessage = async () => undefined;
+    f.native.createPublicSnapshot = () => assert.fail('no enrollment');
+    await f.commands.get('volparossaCode.codingPublicTask')();
+    assert.deepEqual(f.events, []);
+  }
 });

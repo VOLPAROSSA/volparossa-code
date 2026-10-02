@@ -1,7 +1,7 @@
 {
   "name": "volparossa-code",
   "displayName": "VOLPAROSSA Code",
-  "description": "Development integration for private VOLPAROSSA compute and the open Codex agent runtime.",
+  "description": "OpenCode integration with VOLPAROSSA compute and cooperative network development.",
   "version": "0.1.0-dev.1",
   "publisher": "volparossa",
   "license": "GPL-3.0-only",
@@ -17,6 +17,8 @@
   "contributes": {
     "commands": [
       {"command": "volparossaCode.reviewSelection", "title": "VOLPAROSSA: Ask About Selected Code (Private, Local)"},
+      {"command": "volparossaCode.codingTask", "title": "VOLPAROSSA: Run OpenCode Task (Development)"},
+      {"command": "volparossaCode.codingPublicTask", "title": "VOLPAROSSA: Run OpenCode Task with Enrolled Public Work"},
       {"command": "volparossaCode.capabilities", "title": "VOLPAROSSA: Show Compute Capabilities"}
     ],
     "configuration": {
@@ -25,10 +27,21 @@
         "volparossaCode.privateSocket": {
           "type": "string", "default": "", "scope": "machine",
           "description": "Absolute same-owner Unix socket of an explicitly started VOLPAROSSA private-serve service. No service is started or downloaded by the extension."
+        },
+        "volparossaCode.openCodeRuntime": {
+          "type": "object", "default": {}, "scope": "machine",
+          "description": "Explicit pinned OpenCode runtime inputs; see docs/OPENCODE.md. User settings only. No runtime or model is downloaded, and opening a workspace starts nothing. Historical nativeRuntime/Codex settings are not used."
+        },
+        "volparossaCode.publicSocket": {
+          "type": "string", "default": "", "scope": "machine",
+          "description": "Explicit same-owner public-serve socket. Only an exactly enrolled public question/excerpt may be delegated; private history never falls back here. The raw socket is not mounted into OpenCode."
         }
       }
     }
   },
-  "scripts": {"test": "node --test tests/*.test.cjs", "check": "node --check src/extension.cjs && node --check src/app-server.cjs && node --check src/private-compute.cjs"}
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "test:opencode": "node --test tests/opencode-*.test.cjs tests/cooperative-*.test.cjs tests/chat-completions-provider.test.cjs tests/extension.test.cjs",
+    "check": "node --check src/extension.cjs && node --check src/opencode-runtime.cjs && node --check src/opencode-client.cjs && node --check src/opencode-task.cjs && node --check src/chat-completions-provider.cjs && node --check scripts/opencode_session.cjs"
+  }
 }
-
