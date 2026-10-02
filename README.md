@@ -2,19 +2,27 @@
 
 **An open editor companion for the VOLPAROSSA cooperative network.**
 
-The destination is a coding assistant built on the **open Codex CLI/app-server**,
-with VOLPAROSSA supplying intelligence and organizing collaboration. This is an
-independent GPL-3.0-only extension for VS Code/VSCodium—not a repackaged copy of
-OpenAI's proprietary IDE extension, and not an OpenAI-backed service.
+The selected direction is a coding assistant built on **OpenCode**, with
+VOLPAROSSA supplying intelligence and organizing network cooperation. Reusing
+suitable upstream apps, clients and editor integrations is part of that direction.
+Original integration code is GPL-3.0-only; upstream licenses and notices remain
+intact. This is not an OpenAI-backed service or a copy of its proprietary IDE extension.
+
+**What is on `main`?** The executable baseline below still contains the earlier
+Codex-based experiments and direct private-core commands. The OpenCode runtime
+and cooperative-tool integration are being developed in
+[PR #5](https://github.com/VOLPAROSSA/volparossa-code/pull/5), which has not yet
+been merged. This README update does not install that runtime or change the
+working commands on `main`.
 
 ## Who does what?
 
 ```mermaid
 flowchart LR
-    Editor["VOLPAROSSA Code\nUser intent, selection, approvals"] --> Runtime["Open Codex runtime\nLocal agent and tool loop"]
+    Editor["VOLPAROSSA Code\nUser intent, selection, approvals"] --> Runtime["OpenCode\nAgent and workspace tool loop"]
     Runtime --> Core["VOLPAROSSA core\nModels, task coordination, cancellation"]
-    Core --> Private["Private local inference"]
-    Core --> Cooperative["Eligible cooperative tasks\nExplicit sharing boundary"]
+    Core --> Private["Owner-local inference\nCurrent development executor / fallback"]
+    Core -.-> Cooperative["Network cooperation by default\nProtected private execution required"]
     Runtime --> Tools["Approved local workspace tools"]
 ```
 
@@ -24,7 +32,15 @@ not create a separate peer scheduler or treat model output as permission to run
 commands. Private prompts, code, tool output and repository history are not
 automatically public training or cache material.
 
-## First executable slice
+Cooperation is the default architectural goal, not an optional replacement for
+an otherwise local-only product. Private work must also be able to use suitable
+network executors without exposing source or tool data to their operators. That
+protected execution is **not implemented by the current local executor**: TLS,
+task fragmentation and peer signatures alone do not hide inputs from an ordinary
+executing host. Explicitly public task sharing is a separate capability, not proof
+of private distributed coding.
+
+## First executable slice — current `main`
 
 The extension implements two explicit commands:
 
@@ -95,21 +111,24 @@ npm run check
 
 ## Remaining integration work
 
-- Prove the new conversation/provider interface with an actual model and the
-  native Codex Responses/tool loop; the bounded Q&A endpoint stays separate.
-- Connect the built runtime to the extension and core provider, retaining its
-  isolated configuration and upstream notices; never use the owner's OpenAI login
-  or cloud fallback.
-- Complete native conversation/tool interoperability, reviewable diffs and local
-  approvals, then prove an actual edit-and-test coding task end to end.
-- Delegate eligible work through the core's cooperative scheduler, with explicit
-  privacy scope, cancellation, resource accounting and result provenance.
-- Run a native editor test against a real core/model and package the extension.
+- Integrate the OpenCode candidate into `main`, preserving isolated configuration,
+  upstream notices and the existing private Q&A command. Retain the Codex evidence
+  as history, not as the selected future runtime.
+- Prove an actual OpenCode/model read-edit-test task with reviewable changes,
+  explicit local approvals and independently checked results. Protocol tests or
+  synthetic replies alone do not prove real model-driven coding.
+- Make network cooperation standard through the core's scheduler, with protected
+  private execution, resource accounting, cancellation, result provenance and
+  core immune-policy oversight; do not substitute public sharing for private execution.
+- Run native editor tests against the real core/model and prepare suitable upstream
+  app/client integrations and packaging.
 
 The small models currently supported by the core are not a claim of Codex-class
 coding performance. Installing this frontend alone does not supply a stronger
 model, private distributed inference or a completed cooperative coding agent.
 
-See [upstream provenance](THIRD_PARTY_LICENSES.md), the
-[open Codex app-server documentation](https://learn.chatgpt.com/docs/app-server)
-and the [open-source boundary](https://learn.chatgpt.com/docs/open-source).
+See [upstream provenance for the current baseline](THIRD_PARTY_LICENSES.md) and
+the [OpenCode migration PR](https://github.com/VOLPAROSSA/volparossa-code/pull/5).
+The [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server)
+and [open-source boundary](https://learn.chatgpt.com/docs/open-source) describe the
+historical foundation retained on `main`, not the newly selected runtime.
