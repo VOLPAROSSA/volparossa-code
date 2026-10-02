@@ -3,8 +3,20 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {commandKind, approvalKind, ORIGINAL, TEST, retainFailure, closeRuntime} = require('../scripts/smoke_opencode_inference.cjs');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
+const {commandKind, approvalKind, ORIGINAL, TEST, retainFailure, closeRuntime,
+  createTrialVerifier, runNativeTrial} = require('../scripts/smoke_opencode_inference.cjs');
 const {emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
+
+async function trialProject(t) {
+  const project = await fs.mkdtemp(path.join(os.tmpdir(), 'opencode-trial-wiring-'));
+  await fs.chmod(project, 0o700);
+  t.after(() => fs.rm(project, {recursive: true, force: false}));
+  await fs.writeFile(path.join(project, 'test_fixture.py'), TEST, {mode: 0o600, flag: 'wx'});
+  return project;
+}
 test('ordinary scoped read and Python unittest spellings are accepted without a single expected command', () => {
   for (const cmd of ['cat fixture.py', 'cat /workspace/test_fixture.py', "sed -n '1,120p' fixture.py", 'ls -la', 'pwd']) {
     assert.equal(commandKind(cmd), 'read', cmd);
@@ -63,4 +75,90 @@ test('original trial receipt retains closed native tool facts without treating t
   const older = {};
   await closeRuntime(older, {async close() {}});
   assert.equal(older.native_tool_diagnostics, null); // Absent older counters are not zero observations.
+});
+test('trial selects original unittest argv and authorizes only currently intact owned test bytes', async t => {
+  const project = await trialProject(t), file = path.join(project, 'test_fixture.py');
+  let selected;
+  const verifier = async () => ({status: 'failed', feedback: 'actual private test output'});
+  assert.equal(createTrialVerifier(project, config => { selected = config; return verifier; }), verifier);
+  const {approve, ...command} = selected;
+  assert.deepEqual(command, {workspace: project, executable: '/usr/bin/python3',
+    args: ['-B', '-m', 'unittest', '-v', 'test_fixture.py'], timeoutMs: 15000});
+  assert.equal(await approve(), true);
+  await fs.writeFile(file, TEST + '\n# changed\n');
+  assert.equal(await approve(), false);
+  await fs.writeFile(file, TEST);
+  assert.equal(await approve(), true); // Re-read each check, not just a startup hash.
+  await fs.chmod(file, 0o622);
+  assert.equal(await approve(), false);
+  await fs.chmod(file, 0o600);
+  await fs.rename(file, path.join(project, 'original.py'));
+  await fs.symlink('original.py', file);
+  assert.equal(await approve(), false);
+  await fs.unlink(file);
+  assert.equal(await approve(), false);
+});
+test('trial wires owner feedback without changing prompt, signal, default round bound or native counters', async t => {
+  const project = await trialProject(t), controller = new AbortController();
+  const evidence = {approved_read: 0, approved_edit: 0, approved_test: 0, refused: 0,
+    completed_commands: 0, failed_commands: 0, verification: null,
+    passed: false, general_coding_quality_proven: false, model_answers_injected: false};
+  const receipt = {status: 'failed', feedback: 'PRIVATE_CHECK_OUTPUT_CANARY'};
+  const verify = async () => receipt;
+  let calls = 0;
+  await runNativeTrial({async run(prompt, options) {
+    calls++;
+    assert.equal(prompt, 'Read fixture.py and test_fixture.py. Fix the small bug in fixture.py, '
+      + 'then run the existing Python unittest tests. Do not modify tests or install dependencies. '
+      + 'This is an explicitly selected disposable project. Keep your final answer concise.');
+    assert.deepEqual(Object.keys(options).sort(), ['approve', 'onStatus', 'signal', 'verify']);
+    assert.equal(options.signal, controller.signal);
+    assert.equal(options.verify, verify);
+    assert.equal(await options.verify({round: 1, remainingMs: 1000, signal: controller.signal}), receipt);
+    assert.equal(evidence.approved_test, 0); // An owner check is not a model-issued test command.
+    options.onStatus({commands: 2, status: 'failed'});
+    return {nativeTurnCompleted: true, commands: 2, text: 'PRIVATE_MODEL_OUTPUT_CANARY',
+      verification: {status: 'failed', checks: 3, continuations: 2}};
+  }}, project, controller, evidence, verify);
+  assert.equal(calls, 1); // Continuation belongs to the runtime, not a new trial/session.
+  assert.deepEqual(evidence.verification, {status: 'failed', checks: 3, continuations: 2});
+  assert.equal(evidence.failed_commands, 1);
+  assert.equal(evidence.approved_read + evidence.approved_edit + evidence.approved_test, 0);
+  assert.equal(evidence.passed, false);
+  assert.equal(evidence.general_coding_quality_proven, false);
+  assert.equal(evidence.model_answers_injected, false);
+  assert.ok(!JSON.stringify(evidence).includes('CANARY'));
+});
+test('native approval quota remains twelve and owner checks cannot manufacture edit or test approval', async t => {
+  const project = await trialProject(t), controller = new AbortController();
+  const evidence = {approved_read: 0, approved_edit: 0, approved_test: 0, refused: 0, verification: null};
+  await assert.rejects(runNativeTrial({async run(_prompt, options) {
+    const read = {permission: 'bash', directory: '/workspace', command: 'cat fixture.py'};
+    for (let index = 0; index < 12; index++) assert.equal(await options.approve(read), true);
+    assert.equal(await options.approve(read), false);
+    assert.equal(controller.signal.aborted, true);
+    throw Error('cancelled synthetic runtime');
+  }}, project, controller, evidence, async () => ({status: 'passed', feedback: ''})), /cancelled synthetic runtime/);
+  assert.equal(evidence.approved_read, 12);
+  assert.equal(evidence.approved_edit, 0);
+  assert.equal(evidence.approved_test, 0);
+  assert.equal(evidence.refused, 1);
+  assert.equal(evidence.verification, null);
+});
+test('unavailable verification remains terminal and cleanup failure cannot create a retained success', async t => {
+  const project = await trialProject(t), controller = new AbortController();
+  const evidence = {verification: null, passed: false};
+  let calls = 0;
+  await runNativeTrial({async run() {
+    calls++;
+    return {nativeTurnCompleted: true, commands: 0,
+      verification: {status: 'unavailable', checks: 1, continuations: 0}};
+  }}, project, controller, evidence, async () => ({status: 'unavailable', feedback: ''}));
+  assert.equal(calls, 1);
+  assert.deepEqual(evidence.verification, {status: 'unavailable', checks: 1, continuations: 0});
+  const failed = {verification: null, passed: false};
+  const cleanup = Object.assign(Error('PRIVATE_CLEANUP_CANARY'), {code: 'opencode_task_verification_cleanup_unconfirmed'});
+  await assert.rejects(runNativeTrial({async run() { throw cleanup; }}, project, controller, failed,
+    async () => ({status: 'failed', feedback: 'PRIVATE_CHECK_CANARY'})), error => error === cleanup);
+  assert.deepEqual(failed, {verification: null, passed: false});
 });

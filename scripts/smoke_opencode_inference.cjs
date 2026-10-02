@@ -9,6 +9,7 @@ const {createHash} = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const {OpenCodeRuntime} = require('../src/opencode-runtime.cjs');
 const {taskFailure} = require('../src/opencode-bridge.cjs');
+const {createWorkspaceVerifier} = require('../src/workspace-verifier.cjs');
 
 const ORIGINAL = 'def add(a, b):\n    return a - b\n';
 const TEST = 'import unittest\nfrom fixture import add\n\nclass AddTests(unittest.TestCase):\n'
@@ -83,6 +84,37 @@ async function contents(project, name, maximum = 8192) {
   return fs.readFile(target);
 }
 
+function createTrialVerifier(project, createVerifier = createWorkspaceVerifier) {
+  // Owner-selected before the model starts. This current-workspace check never
+  // replaces the separate immutable acceptance check below or native approvals.
+  return createVerifier({workspace: project, executable: '/usr/bin/python3',
+    args: ['-B', '-m', 'unittest', '-v', 'test_fixture.py'], timeoutMs: 15000,
+    approve: async () => {
+      try { return hash(await contents(project, 'test_fixture.py')) === hash(TEST); }
+      catch { return false; }
+    }});
+}
+
+async function runNativeTrial(runtime, project, controller, evidence, verify) {
+  const result = await runtime.run('Read fixture.py and test_fixture.py. Fix the small bug in fixture.py, '
+    + 'then run the existing Python unittest tests. Do not modify tests or install dependencies. '
+    + 'This is an explicitly selected disposable project. Keep your final answer concise.', {
+    signal: controller.signal, verify,
+    approve: async proposal => {
+      const kind = approvalKind(proposal);
+      const count = evidence.approved_read + evidence.approved_edit + evidence.approved_test;
+      const intact = hash(await contents(project, 'test_fixture.py')) === hash(TEST);
+      if (!kind || count >= 12 || !intact) { evidence.refused++; controller.abort(); return false; }
+      evidence['approved_' + kind]++; return true;
+    },
+    onStatus: status => { evidence.completed_commands = status.commands; if (status.status === 'failed') evidence.failed_commands++; },
+  });
+  evidence.actual_native_turn_completed = result.nativeTurnCompleted === true;
+  evidence.completed_commands = result.commands;
+  const {status, checks, continuations} = result.verification;
+  evidence.verification = {status, checks, continuations}; // Never export private check output.
+}
+
 async function isolatedCheck(project, parent) {
   const check = await fs.mkdtemp(path.join(parent, 'opencode-check-'));
   await fs.chmod(check, 0o700);
@@ -135,6 +167,7 @@ async function main(args = process.argv.slice(2)) {
   if (await fs.stat(staged).then(s => s.isFile(), () => false)) config.opencode = staged;
   const evidence = {version: 1, kind: 'opencode-actual-core-task', passed: false, phase: 'prepare', failure: null,
     cleanup_failure: null, task_cleanup_failure: null, provider_diagnostics: null, native_tool_diagnostics: null,
+    verification: null,
     actual_native_turn_completed: false, synthetic_core_used: false, model_answers_injected: false,
     private_peer_execution_proven: false, general_coding_quality_proven: false,
     core_model_provenance_owned_by_parent: true, vm_cleanup_owned_by_parent: true,
@@ -156,25 +189,12 @@ async function main(args = process.argv.slice(2)) {
       await fs.writeFile(path.join(project, name), value, {flag: 'wx', mode: 0o600});
     }
     assert.equal(await isolatedCheck(project, parent), false, 'fixture baseline must really fail');
+    const verify = createTrialVerifier(project);
     evidence.phase = 'runtime-start';
     runtime = await OpenCodeRuntime.start(config, {workspace: project});
     assert.equal(runtime.execution, 'private_local'); assert.equal(runtime.confidentialRemoteAvailable, false);
     evidence.phase = 'native-task';
-    const result = await runtime.run('Read fixture.py and test_fixture.py. Fix the small bug in fixture.py, '
-      + 'then run the existing Python unittest tests. Do not modify tests or install dependencies. '
-      + 'This is an explicitly selected disposable project. Keep your final answer concise.', {
-      signal: controller.signal,
-      approve: async proposal => {
-        const kind = approvalKind(proposal);
-        const count = evidence.approved_read + evidence.approved_edit + evidence.approved_test;
-        const intact = hash(await contents(project, 'test_fixture.py')) === hash(TEST);
-        if (!kind || count >= 12 || !intact) { evidence.refused++; controller.abort(); return false; }
-        evidence['approved_' + kind]++; return true;
-      },
-      onStatus: status => { evidence.completed_commands = status.commands; if (status.status === 'failed') evidence.failed_commands++; },
-    });
-    evidence.actual_native_turn_completed = result.nativeTurnCompleted === true;
-    evidence.completed_commands = result.commands;
+    await runNativeTrial(runtime, project, controller, evidence, verify);
     evidence.phase = 'independent-check';
     evidence.original_test_unchanged = hash(await contents(project, 'test_fixture.py')) === hash(TEST);
     const changed = await contents(project, 'fixture.py');
@@ -209,4 +229,5 @@ async function main(args = process.argv.slice(2)) {
 if (require.main === module) main().catch(() => {
   process.stderr.write('{"passed":false,"phase":"guard","failure":"guard_or_input_rejected"}\n'); process.exitCode = 1;
 });
-module.exports = {main, commandKind, approvalKind, ORIGINAL, TEST, guestGuard, retainFailure, closeRuntime};
+module.exports = {main, commandKind, approvalKind, ORIGINAL, TEST, guestGuard, retainFailure, closeRuntime,
+  createTrialVerifier, runNativeTrial};

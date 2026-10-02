@@ -102,8 +102,11 @@ operation. Existing callers with no verifier keep their previous one-turn API.
 
 The owner CLI is wired end to end. The editor extension does **not yet** expose a
 trusted verifier-selection/approval UI, so its existing route remains unchanged;
-merely setting a model prompt does not enable verification. The original real
-coding trial is likewise unchanged in this slice. Unit tests exercise protocol
+merely setting a model prompt does not enable verification. The real coding
+trial now selects this verifier before runtime startup and checks the original
+test-file identity before each execution. Its initial prompt, model, total time
+budget, native approval quota and final independent acceptance check are unchanged.
+Only the closed check status/counts are exported, never check output. Unit tests exercise protocol
 and lifecycle with synthetic native dependencies; the separate actual bwrap
 smoke proves isolated checks and cancellation, not model-guided coding success.
 
