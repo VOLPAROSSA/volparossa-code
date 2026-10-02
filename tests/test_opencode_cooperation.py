@@ -6,7 +6,9 @@ import os
 from pathlib import Path
 import socket
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('cooperative_opencode_session', ROOT / 'scripts/opencode_session.py')
@@ -15,6 +17,31 @@ SPEC.loader.exec_module(SESSION)
 
 
 class CooperativeNamespaceTests(unittest.TestCase):
+    def test_same_owner_service_home_is_empty_not_host_bound(self):
+        for name, home in [('fixture', '/home/fixture'), ('volparossa', '/var/lib/volparossa')]:
+            with self.subTest(home=home), patch.object(SESSION.os, 'getuid', return_value=1234), \
+                    patch.object(SESSION.pwd, 'getpwuid', return_value=SimpleNamespace(
+                        pw_uid=1234, pw_name=name, pw_dir=home)):
+                selected = SESSION.account_home()
+                self.assertEqual(selected, Path(home))
+                command = SESSION.command(Path('/fixture/opencode'), Path('/fixture/node'),
+                    Path('/fixture/private.sock'), Path('/fixture/project'), selected)
+                self.assertEqual(command[command.index(home) - 1], '--dir')
+                self.assertNotIn('HOME', command)
+                self.assertEqual(command.count('--bind'), 1)
+
+    def test_service_home_exception_does_not_admit_other_accounts_or_roots(self):
+        for name, home, uid in [('other', '/var/lib/volparossa', 1234),
+                ('volparossa', '/var/lib/other', 1234), ('volparossa', '/var/lib', 1234),
+                ('volparossa', '/home/..', 1234), ('volparossa', '/root', 1234),
+                ('root', '/home/root', 0), ('volparossa', '/var/lib/volparossa', 5678)]:
+            with self.subTest(name=name, home=home, uid=uid), \
+                    patch.object(SESSION.os, 'getuid', return_value=1234), \
+                    patch.object(SESSION.pwd, 'getpwuid', return_value=SimpleNamespace(
+                        pw_uid=uid, pw_name=name, pw_dir=home)):
+                with self.assertRaises(ValueError):
+                    SESSION.account_home()
+
     def test_only_optional_enrolled_proxy_and_trusted_sources_are_mounted(self):
         args = (Path('/fixture/opencode'), Path('/fixture/node'), Path('/fixture/private.sock'),
                 Path('/fixture/project'), Path('/home/fixture'))

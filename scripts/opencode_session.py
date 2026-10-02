@@ -60,6 +60,18 @@ def private_socket(value):
     return ipc
 
 
+def account_home():
+    account = pwd.getpwuid(os.getuid())
+    home = Path(account.pw_dir)
+    # The same-owner core service can run under its dedicated system account.
+    # This is an empty directory in the namespace, never a bind of host state.
+    require(os.getuid() != 0 and account.pw_uid == os.getuid()
+            and home.is_absolute() and '..' not in home.parts
+            and (home.parent == Path('/home')
+                 or account.pw_name == 'volparossa' and home == Path('/var/lib/volparossa')))
+    return home
+
+
 def validate(config, workspace):
     require(os.getuid() != 0 and type(config) is dict and set(config) in (FIELDS, FIELDS | {COOPERATIVE_FIELD})
             and type(config['version']) is int and config['version'] == 1)
@@ -81,7 +93,7 @@ def validate(config, workspace):
     cooperative = private_socket(config[COOPERATIVE_FIELD]) if COOPERATIVE_FIELD in config else None
     require(cooperative is None or cooperative != ipc)
     project = owned(workspace, stat.S_ISDIR)
-    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    home = account_home()
     broad = {Path(name) for name in ('/', '/home', '/root', '/tmp', '/var', '/var/tmp',
                                    '/usr', '/etc', '/run', '/media', '/mnt', '/opt')}
     broad.update((home, *home.parents))
@@ -89,7 +101,6 @@ def validate(config, workspace):
     authorities = (binary, node, report_path, ipc, ROOT) + ((cooperative,) if cooperative else ())
     require(all(not item.is_relative_to(project) for item in authorities)
             and not project.is_relative_to(ROOT) and not project.is_relative_to(report_path.parent))
-    require(home.parent == Path('/home'))
     return binary, node, ipc, project, home, cooperative
 
 

@@ -103,7 +103,7 @@ To enable this development path, set `volparossaCode.publicSocket` in user setti
 to a separately started, same-owner public-serve endpoint and run **OpenCode Task
 with Enrolled Public Work**. This currently depends on core branch
 `feature/browser-cooperative-compute`, inspected at
-`a57fff5c96c9321df753e2118e3acc5b10c70a46` (PR #178); it is not an interface supplied
+`610866b8770b63719ec1f4b4ce6abb6a83a596ef` (PR #178); it is not an interface supplied
 by the current main branch. The private conversation service is still needed for
 OpenCode's planning turns.
 
@@ -168,6 +168,33 @@ Neither report may be relabelled as real inference or immune-policy proof.
 Actual model-driven coding, native editor UI operation, confidential peer
 execution and full immune supervision remain unproved.
 
+## Real public-core integration driver
+
+`scripts/smoke_opencode_cooperation.cjs` uses the production OpenCode runtime and
+enrolled proxy against an **externally supplied public-serve endpoint**, rather
+than generating public-core replies. It runs only as `vpci` or `volparossa` inside
+the explicitly identified disposable KVM guest. The launcher supports the exact
+`volparossa` service account home by creating an empty namespace directory; it
+does not expose the account's host files.
+
+```sh
+/absolute/node scripts/smoke_opencode_cooperation.cjs --execute --yes \
+  --node /absolute/node --build-report /absolute/runtime/build-report.json \
+  --public-socket /absolute/owner/public.sock \
+  --snapshot /absolute/owner/public-snapshot.json --snapshot-sha256 EXACT_SHA256 \
+  --project-parent /absolute/owner/new-projects --output /absolute/owner/new-report.json
+```
+
+The hash-bound JSON snapshot contains `question`, `context`, `license`,
+`public_content: true` and `rights_confirmed: true`. Only the private planning
+turns are synthetic, to exercise exactly one native delegation without claiming
+model-driven planning. Success requires a complete original result naming at
+least two execution providers, an unchanged tool-result round trip and confirmed
+runtime/task cleanup. The report contains bounded status, IDs and hashes, not
+the submitted text or answer. The parent topology must independently join these
+to the real workers, retained receipts, protected traffic and VM cleanup. The
+driver and its eight focused checks are **not a completed live-peer proof**.
+
 ## Real-model trial driver
 
 `scripts/smoke_opencode_inference.py` prepares one explicit disposable Debian 13
@@ -202,5 +229,5 @@ its existing tests. A separate sandbox independently checks the result using
 unchanged tests; a generated success message alone is not success. Only bounded
 read/test commands and edits to the selected fixture can be approved. The reports
 separate task execution, model provenance and guest/resource cleanup. Four
-JavaScript and three Python driver checks pass; these checks and a successfully
+JavaScript and five Python driver checks pass; these checks and a successfully
 packed source bundle are **not** evidence that the real-model trial passes.
