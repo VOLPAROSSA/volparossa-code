@@ -1,3 +1,5 @@
+![Project VOLPAROSSA Code — botanical illustration of a flowering plant with circuit-like roots on parchment](docs/assets/volparossa-code-banner.png)
+
 # Project VOLPAROSSA Code
 
 **An open editor companion for the VOLPAROSSA cooperative network.**
