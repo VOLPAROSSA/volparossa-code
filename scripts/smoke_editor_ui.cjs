@@ -12,7 +12,8 @@ const ORIGINAL = 'def add(a, b):\n    return a - b\n';
 const ACTIONS = '.editor-ui-actions.jsonl';
 const FAILURE = new Set(['guest_required', 'arguments', 'project_scope', 'output_scope',
   'editor_unavailable', 'cdp_failed', 'ui_unrecognized', 'ui_bound', 'deadline',
-  'command_refused', 'editor_failed', 'fixture_failed', 'cleanup_unconfirmed']);
+  'command_refused', 'editor_failed', 'fixture_failed', 'cleanup_unconfirmed',
+  'startup_not_ready', 'palette_unavailable', 'startup_dialog']);
 function demand(value, reason) { if (!value) throw Error(reason); }
 const sha = value => createHash('sha256').update(value).digest('hex');
 
@@ -127,7 +128,9 @@ const SNAPSHOT = `(() => {
  const result=[...document.querySelectorAll('.monaco-editor .view-lines .view-line')].filter(visible).map(text).join('\\n');
  const errors=[...document.querySelectorAll('.notification-list-item-message')].filter(visible).map(text).some(t=>t.includes('VOLPAROSSA could not complete this operation.'));
  const title=q?text(q.querySelector('.quick-input-title')):'';
- return {dialogs,quick:visible(input)?{title,...point(input)}:null,
+ return {dialogs,quick:visible(input)?{title,palette:input.value.startsWith('>'),...point(input)}:null,
+  documentReady:document.readyState==='complete',
+  workbenchReady:!!visible(document.querySelector('.monaco-workbench'))&&!!visible(document.querySelector('.part.editor')),
   resultShown:result.includes('VOLPAROSSA — native coding turn finished')&&result.includes('Task correctness and tests are not independently verified'),
   resultCommands:result.match(/Native commands observed: ([0-9]+)/)?.[1]??null,errors};
 })()`;
@@ -208,6 +211,40 @@ async function connect(origin) {
   catch (error) { await cdp.close(); throw error; }
 }
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+function startupObservation() {
+  return {document_ready:false,workbench_ready:false,dialog_seen:false,palette_attempts:0,palette_seen:false};
+}
+function startupAction(view, attempts, retryDue) {
+  demand(view && typeof view.documentReady === 'boolean' && typeof view.workbenchReady === 'boolean' &&
+    Array.isArray(view.dialogs) && Number.isInteger(attempts) && attempts >= 0 && attempts <= 8, 'ui_unrecognized');
+  demand(!view.errors, 'editor_failed');
+  if (view.dialogs.length) throw Error('startup_dialog'); // Never dismiss or approve an unknown dialog.
+  if (view.quick) {
+    demand(attempts > 0 && view.quick.palette === true, 'ui_unrecognized');
+    return 'ready';
+  }
+  if (!view.documentReady || !view.workbenchReady || !retryDue || attempts === 8) return 'wait';
+  return 'open';
+}
+async function openPalette(cdp, deadline, observed) {
+  let retryAt = 0;
+  while (Date.now() < deadline) {
+    const view = await cdp.snapshot();
+    observed.document_ready ||= view.documentReady === true;
+    observed.workbench_ready ||= view.workbenchReady === true;
+    observed.dialog_seen ||= Array.isArray(view.dialogs) && view.dialogs.length > 0;
+    const action = startupAction(view, observed.palette_attempts, Date.now() >= retryAt);
+    if (action === 'ready') { observed.palette_seen = true; return view; }
+    if (action === 'open') {
+      // A CDP page can exist before keybindings. Retry only an unobserved palette,
+      // never consent/tool actions, and never extend the original 15-second window.
+      await cdp.call('Page.bringToFront'); await cdp.key('F1', 'F1', 112);
+      observed.palette_attempts++; retryAt = Date.now() + 750;
+    }
+    await pause(200); // DOM polling, not an unconditional startup sleep.
+  }
+  throw Error(observed.document_ready && observed.workbench_ready ? 'palette_unavailable' : 'startup_not_ready');
+}
 async function until(cdp, predicate, deadline) {
   while (Date.now() < deadline) {
     const view = await cdp.snapshot(); demand(!view.errors, 'editor_failed');
@@ -219,8 +256,7 @@ async function until(cdp, predicate, deadline) {
 
 async function drive(cdp, project, seconds, report) {
   const deadline = Date.now() + seconds * 1000;
-  await cdp.key('F1', 'F1', 112);
-  let view = await until(cdp, v => v.quick, Math.min(deadline, Date.now() + 15000));
+  let view = await openPalette(cdp, Math.min(deadline, Date.now() + 15000), report.startup);
   await cdp.click(view.quick); await cdp.key('a', 'KeyA', 65, 2);
   await cdp.call('Input.insertText', {text: '>VOLPAROSSA: Run Native Coding Task (Private, Local)'});
   await pause(400); await cdp.key('Enter', 'Enter', 13);
@@ -284,7 +320,7 @@ async function run(config) {
     await fs.writeFile(config.output, JSON.stringify(report) + '\n', {flag: 'wx', mode: 0o600});
     return report;
   }
-  const report = {version: 1, kind: 'native-editor-ui-smoke', passed: false, phase: 'prepare',
+  const report = {version: 2, kind: 'native-editor-ui-smoke', passed: false, phase: 'prepare', startup: startupObservation(),
     failure: null, start_clicked: false, approved_commands: 0, declined_commands: 0,
     native_commands_observed: 0, read: false, edit: false, test: false, independent_test_passed: false,
     ui_result_shown: false, runtime_cleanup_confirmed_by_ui: false, cdp_closed: false,
@@ -341,4 +377,5 @@ if (require.main === module) (async () => {
 
 // Component probes may inspect real rendered UI without starting a model task.
 // There is deliberately no CLI switch bypassing the disposable-guest guard.
-module.exports = {options, guestAllowed, approval, completedActions, journal, TASK, SNAPSHOT, CDP, connect};
+module.exports = {options, guestAllowed, approval, completedActions, journal, TASK, SNAPSHOT, CDP, connect,
+  startupObservation, startupAction, openPalette};

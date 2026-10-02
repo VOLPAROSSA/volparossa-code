@@ -5,7 +5,8 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {spawnSync} = require('node:child_process');
 const path = require('node:path');
-const {options, guestAllowed, approval, completedActions, journal, TASK, SNAPSHOT} = require('../scripts/smoke_editor_ui.cjs');
+const {options, guestAllowed, approval, completedActions, journal, TASK, SNAPSHOT,
+  startupAction, startupObservation} = require('../scripts/smoke_editor_ui.cjs');
 const root = path.resolve(__dirname, '..');
 const message = command => `Run this command once in .?\n\n${command}\n\nThis permits only this request, not future commands or wider access.`;
 const read = {action: 'read', passed: true}, edit = {action: 'edit', passed: true}, passed = {action: 'test', passed: true};
@@ -59,6 +60,26 @@ test('GUI task gives no repair expression or canned result; DOM observation has 
   assert(!/acquireVsCodeApi|vscode\.|executeCommand|\.value\s*=/.test(SNAPSHOT));
   for (const selector of ['.quick-input-widget', '.dialog-message-text', '.dialog-buttons .monaco-button',
     '.monaco-editor .view-lines .view-line']) assert(SNAPSHOT.includes(selector));
+});
+
+test('startup observes actual workbench DOM before F1 and can retry a lost startup key without approving dialogs', () => {
+  const loading = {documentReady:false,workbenchReady:false,dialogs:[],quick:null,errors:false};
+  const ready = {...loading,documentReady:true,workbenchReady:true};
+  assert.deepEqual(startupObservation(), {document_ready:false,workbench_ready:false,
+    dialog_seen:false,palette_attempts:0,palette_seen:false});
+  assert.equal(startupAction(loading, 0, true), 'wait');
+  assert.equal(startupAction({...loading, documentReady:true}, 0, true), 'wait');
+  assert.equal(startupAction({...loading, workbenchReady:true}, 0, true), 'wait');
+  assert.equal(startupAction(ready, 0, true), 'open');
+  assert.equal(startupAction(ready, 1, false), 'wait');
+  assert.equal(startupAction(ready, 1, true), 'open'); // First F1 was lost, not treated as permission.
+  assert.equal(startupAction({...ready,quick:{palette:true}}, 2, true), 'ready');
+  assert.equal(startupAction(ready, 8, true), 'wait'); // No unbounded input or larger deadline.
+  for (const view of [{...ready,dialogs:[{message:'unknown startup dialog'}]},
+    {...ready,quick:{palette:false}}, {...ready,errors:true}]) assert.throws(() => startupAction(view, 1, true));
+  assert.throws(() => startupAction({...ready,quick:{palette:true}}, 0, true));
+  assert.throws(() => startupAction(ready, 9, true));
+  for (const selector of ["document.readyState==='complete'", '.monaco-workbench', '.part.editor']) assert(SNAPSHOT.includes(selector));
 });
 
 test('fixture really prepares a new private project and independently rejects wrong arithmetic before accepting a supplied repair', () => {
