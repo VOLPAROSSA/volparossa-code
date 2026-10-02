@@ -276,8 +276,11 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
       } catch (error) {
         const code = error.message?.startsWith('private_compute_') ? error.code : 'provider_failed';
         if (diagnostics) count(summary.request_errors, PROVIDER_ERRORS.includes(code) ? code : 'other');
+        // These two errors follow a terminal, cleanup-confirmed model result.
+        // OpenCode v1.18.34 retries every 5xx, so 502 would repeatedly regenerate
+        // the same unusable greedy turn. Preserve transient/uncertain failures.
         const status = ['busy', 'cleanup_unconfirmed', 'socket_unavailable', 'execution_failed'].includes(code) ? 503 :
-          ['invalid_model_output', 'tool_choice_not_met'].includes(code) ? 502 : code === 'request_bound' ? 413 : 400;
+          ['invalid_model_output', 'tool_choice_not_met'].includes(code) ? 422 : code === 'request_bound' ? 413 : 400;
         errorReply(response, status, code);
       } finally {
         client.close();

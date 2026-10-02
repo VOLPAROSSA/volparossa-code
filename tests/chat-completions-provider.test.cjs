@@ -172,7 +172,7 @@ test('system/developer ordering and parallel historical calls preserve the compl
   assert.deepEqual(mapped.history.slice(-2).map(value => value.call_id), ['call-b', 'call-a']);
 });
 
-test('token exhaustion is length, while invalid/truncated wire never masquerades as stop', async t => {
+test('token exhaustion is length; cleanup-confirmed invalid/truncated output is terminal, not retryable 5xx', async t => {
   for (const reason of ['token_limit', 'wire_truncated', 'invalid_output']) {
     const f = await start(t, (socket, message) => {
       reply(socket, message, 'admitted');
@@ -185,7 +185,7 @@ test('token exhaustion is length, while invalid/truncated wire never masquerades
         assert.equal(values.at(-2).choices[0].finish_reason, 'length');
         assert.ok(values.every(value => !value.choices[0]?.delta?.tool_calls));
       } else {
-        assert.equal(response.status, 502);
+        assert.equal(response.status, 422);
         assert.equal(JSON.parse(response.body).error.code, 'invalid_model_output');
         assert.ok(!response.body.includes('data: '));
       }
@@ -197,6 +197,7 @@ test('token exhaustion is length, while invalid/truncated wire never masquerades
       assert.equal(summary.incomplete, 1); assert.equal(summary.cleanup_confirmed, 1);
       assert.equal(summary.results.incomplete, 1); assert.equal(summary.incomplete_reasons[reason], 1);
       assert.equal(summary.request_errors.invalid_model_output, reason === 'token_limit' ? 0 : 1);
+      assert.equal(f.requests.filter(row => row.operation.type === 'submit_conversation').length, 1);
     } finally { await f.provider.close(); }
   }
 });
@@ -243,7 +244,7 @@ test('tool argument duplicate keys and duplicate/missing results are not silentl
   assert.throws(() => toConversation(body, MODEL, caps(MODEL)));
 });
 
-test('requested tool choice cannot be silently replaced by a different successful outcome', async t => {
+test('a cleanup-confirmed unmet tool choice is terminal and cannot become a different successful outcome', async t => {
   const f = await start(t, (socket, message) => {
     reply(socket, message, 'admitted'); reply(socket, message, 'result', { result: result(undefined, MODEL) });
   });
@@ -251,10 +252,27 @@ test('requested tool choice cannot be silently replaced by a different successfu
     for (const choice of ['required', { type: 'function', function: { name: 'read' } }]) {
       const body = request(); body.tools = [tool()]; body.tool_choice = choice;
       const response = await send(f.provider, body);
-      assert.equal(response.status, 502);
+      assert.equal(response.status, 422);
       assert.equal(JSON.parse(response.body).error.code, 'tool_choice_not_met');
     }
   } finally { await f.provider.close(); }
+});
+
+test('transient core failures keep their retryable status without claiming a completed turn', async t => {
+  for (const code of ['busy', 'execution_failed']) {
+    const f = await start(t, (socket, message) => {
+      if (code === 'execution_failed') reply(socket, message, 'admitted');
+      reply(socket, message, 'error', {code});
+    }, true);
+    try {
+      const response = await send(f.provider, request());
+      assert.equal(response.status, 503);
+      assert.equal(JSON.parse(response.body).error.code, code);
+      assert.equal(f.provider.diagnostics.summary.completed, 0);
+      assert.equal(f.provider.diagnostics.summary.incomplete, 0);
+      assert.equal(f.provider.diagnostics.summary.request_errors[code], 1);
+    } finally { await f.provider.close(); }
+  }
 });
 
 test('cleanup uncertainty never exports model text or a tool proposal', async t => {

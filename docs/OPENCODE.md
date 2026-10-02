@@ -73,6 +73,13 @@ Supported message/tool history and call identities are preserved. Unsupported
 inputs fail rather than being silently shortened or stripped. The provider waits
 for core cleanup before returning SDK-compatible SSE or JSON; this is not
 token-by-token model streaming. Exhaustion remains `length`, not successful `stop`.
+Cleanup-confirmed invalid/truncated output or an unmet tool choice returns a
+terminal HTTP 422, so the pinned SDK and OpenCode do not blindly regenerate that
+unusable turn. Busy/execution/transport availability and uncertain cleanup remain
+separate failures; this change does not make an incomplete answer usable.
+An already reported, known terminal task failure is separate from runtime cleanup:
+the task still fails, while a confirmed session/provider/process shutdown can
+succeed. Unknown/protocol errors and any unconfirmed cleanup still fail closed.
 Cancellation reaches the core and owned session tree. Cleanup uncertainty remains
 an error even when text was generated.
 
@@ -148,6 +155,19 @@ claim. Run explicitly with an existing Node executable:
 Its `native-smoke-report.json` is written beside the build record and is not
 overwritten. The 2026-10-02 trial used Node v24.19.0 and the OpenCode binary with
 SHA-256 `86b944fd0a279c7a24f7396e55aec0cca39685f5d32496a26941cec8ee2cc0bf`.
+
+The actual-runtime terminal-error regression also passes: both `invalid_output`
+and `wire_truncated` produce exactly one coding submission, no regeneration, no
+tool approvals or project changes, and confirmed session/process cleanup. Core
+outputs are deliberately synthetic; this does not explain the older VM03 failure
+or prove real model-driven editing. Run without downloading a model:
+
+```sh
+/absolute/node tests/real_opencode_provider_errors.cjs --execute \
+  --node /absolute/node \
+  --build-report /absolute/build/opencode-runtime/build-report.json \
+  --report /absolute/build/opencode-runtime/native-errors-terminal.json
+```
 
 The native cooperative smoke also passes with this actual runtime. Both complete
 and incomplete answers traverse the trusted custom tool, single-use owner proxy

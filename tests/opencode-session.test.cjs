@@ -12,7 +12,7 @@ function fixture(Task, receive, options = {}) {
   const input = new PassThrough(), output = new PassThrough(), events = new EventEmitter(), observed = [];
   const provider = {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64),
     diagnostics: {summary: emptyProviderDiagnostic()},
-    observations: {submitted: 0, cleanup_confirmed: 0},
+    observations: options.observations ?? {submitted: 0, cleanup_confirmed: 0},
     async close() { observed.push('provider-close'); if (options.badCleanup) throw Error('private detail'); }};
   const hooks = {Task, preflight: async () => {}, provider: async () => provider,
     prepare(cooperative) { assert.equal(cooperative, options.cooperative ?? false); },
@@ -96,16 +96,38 @@ test('inner owner enables public-snapshot tool only when proxy mount is present'
   const f = fixture(Task, (_value, input) => input.end(), {cooperative: true});
   assert.equal(await f.done, 0);
 });
-test('task failure is a closed reason plus counters, never the private exception or a success', async () => {
-  for (const message of ['opencode_task_native_error', 'PRIVATE_CANARY']) {
+test('terminal task failure stays a failed frame while confirmed runtime cleanup succeeds independently', async () => {
+  for (const message of ['opencode_task_native_error', 'opencode_task_incomplete',
+    'opencode_task_cancelled', 'opencode_cancelled', 'PRIVATE_CANARY']) {
     class Task { async run() { throw Error(message); } }
     let failed;
-    const f = fixture(Task, (value, input) => { failed = value; input.end(); });
-    assert.equal(await f.done, 1);
+    const f = fixture(Task, (value, input) => { failed = value; input.end(); },
+      {observations: {submitted: 1, cleanup_confirmed: 1}});
+    assert.equal(await f.done, message === 'PRIVATE_CANARY' ? 1 : 0);
     assert.equal(failed.type, 'failed');
     assert.equal(failed.reason, message === 'PRIVATE_CANARY' ? 'task_or_runtime_failed' : message);
     assert.deepEqual(failed.diagnostics, emptyProviderDiagnostic());
     assert.ok(!JSON.stringify(failed).includes('PRIVATE_CANARY'));
+    assert.equal(f.observed.filter(value => value === 'failed').length, 1);
+    assert.ok(!f.observed.includes('result'));
+    assert(f.observed.includes('provider-close')); assert(f.observed.includes('SIGTERM'));
+  }
+});
+test('task cleanup uncertainty, protocol failures and provider cleanup mismatches still fail owner cleanup', async () => {
+  for (const {error, options} of [
+    {error: Object.assign(Error('opencode_task_native_error'), {taskCleanupFailure: 'session_cleanup_unconfirmed'})},
+    {error: Object.assign(Error('opencode_task_native_error'), {taskCleanupFailure: 'UNKNOWN_PRIVATE_REASON'})},
+    {error: Error('opencode_task_permission_replay')},
+    {error: Error('opencode_task_native_error'), options: {badCleanup: true}},
+    {error: Error('opencode_task_native_error'), options: {observations: {submitted: 1, cleanup_confirmed: 0}}},
+  ]) {
+    class Task { async run() { throw error; } }
+    let failed;
+    const f = fixture(Task, (value, input) => { failed = value; input.end(); }, options);
+    assert.equal(await f.done, 1);
+    assert.equal(failed.type, 'failed');
+    assert.ok(!f.observed.includes('result'));
+    assert.ok(!JSON.stringify(failed).includes('UNKNOWN_PRIVATE_REASON'));
     assert(f.observed.includes('provider-close')); assert(f.observed.includes('SIGTERM'));
   }
 });

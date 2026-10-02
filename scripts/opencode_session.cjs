@@ -14,6 +14,8 @@ const {startChatCompletionsProvider} = require('../src/chat-completions-provider
 const {runtimeSettings, MODEL} = require('../src/opencode-config.cjs');
 const {readFrames, writeFrame, taskFailure} = require('../src/opencode-bridge.cjs');
 const COOPERATIVE_SOCKET = '/opt/core/cooperative.sock';
+const TERMINAL_TASK_ERRORS = new Set(['opencode_task_native_error', 'opencode_task_incomplete',
+  'opencode_task_cancelled', 'opencode_cancelled']);
 
 function cooperativeMounted() {
   let info;
@@ -84,8 +86,13 @@ async function runSession({input, output, events = process}, hooks = {}) {
     running = task.run(value.prompt, {signal: abort.signal}).then(result => {
       if (!closing) send({type: 'result', result, diagnostics: provider?.diagnostics?.summary ?? null});
     }).catch(error => {
-      bad = true;
-      if (!closing) send({type: 'failed', reason: taskFailure(error),
+      const reason = taskFailure(error);
+      // A refused/incomplete/cancelled task is still a failed task, not proof of
+      // failed runtime cleanup. OpenCodeTask has already awaited session deletion;
+      // provider and process cleanup must independently succeed below. Unknown or
+      // protocol failures and any unconfirmed session cleanup remain owner failures.
+      if (!TERMINAL_TASK_ERRORS.has(reason) || error?.taskCleanupFailure != null) bad = true;
+      if (!closing) send({type: 'failed', reason,
         task_cleanup_failure: error?.taskCleanupFailure === 'session_cleanup_unconfirmed' ? 'session_cleanup_unconfirmed' : null,
         diagnostics: provider?.diagnostics?.summary ?? null});
     });
