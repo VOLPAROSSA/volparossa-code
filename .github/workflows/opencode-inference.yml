@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: VOLPAROSSA/volparossa
-          ref: 708bcdd2960ae019579b1c4ce6991ed57653050c
+          ref: 845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3
           path: build/ci-core
           persist-credentials: false
       - name: Require exact clean source and explicit hosted runner

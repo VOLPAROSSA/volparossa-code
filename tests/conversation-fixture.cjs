@@ -30,7 +30,7 @@ function frame(value) {
 function reply(socket, request, event, extra = {}) {
   socket.write(frame({ version: 1, id: request.id, event, ...extra }));
 }
-async function fixture(t, handler, capabilities = caps()) {
+async function fixture(t, handler, capabilities = caps(), clientOptions) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vp-conversation-'));
   await fs.chmod(directory, 0o700);
   const socketPath = path.join(directory, 'core.sock');
@@ -55,7 +55,7 @@ async function fixture(t, handler, capabilities = caps()) {
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
   await fs.chmod(socketPath, 0o600);
-  const client = new PrivateConversation(socketPath);
+  const client = new PrivateConversation(socketPath, clientOptions);
   t.after(async () => {
     client.close();
     for (const socket of sockets) socket.destroy();

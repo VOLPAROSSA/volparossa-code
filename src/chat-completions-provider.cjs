@@ -75,6 +75,12 @@ function toConversation(request, model, caps) {
   neutral(request, 'n', [1]);
   neutral(request, 'temperature', [0]);
   neutral(request, 'top_p', [1]);
+  // Zero temperature is a requested execution policy, not a harmless hint.
+  // Refuse an older core rather than silently use its sampled profile defaults.
+  const greedy = request.temperature === 0;
+  if (greedy) check(caps.generation_policy_version === 1 &&
+    caps.generation_policies?.includes('greedy_v1'), 'unsupported_generation_policy');
+  check(request.top_p === undefined || greedy, 'unsupported_top_p');
   neutral(request, 'frequency_penalty', [0]);
   neutral(request, 'presence_penalty', [0]);
   neutral(request, 'stop', [[]]);
@@ -139,7 +145,7 @@ function toConversation(request, model, caps) {
   }
   const conversation = { version: 1, visibility: 'private_local',
     instructions: instructions.length ? instructions.join('\n\n') : 'Answer the user; tool proposals require separate execution authority.',
-    history, tools };
+    history, tools, ...(greedy ? { generation_policy: 'greedy_v1' } : {}) };
   validateConversation(conversation, caps);
   return conversation;
 }
@@ -234,7 +240,7 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
     if (closing || active) { errorReply(response, 503, 'busy'); return; }
     if (Number(request.headers['content-length'] ?? 0) > HTTP_BYTES) { errorReply(response, 413, 'request_bound'); return; }
     const controller = new AbortController();
-    const client = new PrivateConversation(socketPath);
+    const client = new PrivateConversation(socketPath, { generationPolicyVersion: 1 });
     const owner = { controller, client, done: null };
     active = owner;
     response.once('close', () => { if (!response.writableFinished) controller.abort(); });

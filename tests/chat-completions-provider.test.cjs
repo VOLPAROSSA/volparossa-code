@@ -8,9 +8,19 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { test } = require('node:test');
 const { startChatCompletionsProvider, toConversation } = require('../src/chat-completions-provider.cjs');
-const { caps, result, reply, fixture } = require('./conversation-fixture.cjs');
+const { caps: legacyCaps, result: legacyResult, reply, fixture } = require('./conversation-fixture.cjs');
+
+// These are synthetic replies for the explicitly negotiated worker policy.
+const caps = model => ({ ...legacyCaps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'] });
+const result = (output, model) => ({ ...legacyResult(output, model), generation_policy: 'greedy_v1' });
 
 const MODEL = 'qwen3-0.6b-v1';
+test('explicit temperature zero requires negotiated greedy execution rather than sampled legacy execution', () => {
+  assert.throws(() => toConversation(request(), MODEL, legacyCaps(MODEL)), /unsupported_generation_policy/);
+  const negotiated = { ...caps(MODEL), generation_policy_version: 1, generation_policies: ['greedy_v1'] };
+  assert.equal(toConversation(request(), MODEL, negotiated).generation_policy, 'greedy_v1');
+});
+
 function request(stream = true) {
   return { model: MODEL, max_tokens: 1024, temperature: 0,
     messages: [{ role: 'system', content: 'Preserve the private project and propose bounded changes.' },
@@ -91,7 +101,9 @@ test('SDK stream shape releases actual text and token usage only after terminal 
     assert.equal(settled, false);
     assert.deepEqual(f.provider.observations, { submitted: 1, completed: 0, incomplete: 0, cleanup_confirmed: 0 });
     assert.deepEqual(f.requests.map(row => row.operation.type), ['conversation_capabilities', 'submit_conversation']);
+    assert.deepEqual(f.requests[0].operation, { type: 'conversation_capabilities', generation_policy_version: 1 });
     const input = f.requests[1].operation.conversation;
+    assert.equal(input.generation_policy, 'greedy_v1');
     assert.equal(input.visibility, 'private_local');
     assert.equal(input.instructions, body.messages[0].content);
     assert.equal(input.history[0].text, 'First part.\n\nSecond part.');

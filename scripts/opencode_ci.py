@@ -20,7 +20,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
-CORE = '708bcdd2960ae019579b1c4ce6991ed57653050c'
+CORE = '845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3'
 BASELINE = 'afdb28495cacd74de3bd8467491bdbb9a8b50949'
 PROFILE = 'github-ubuntu-24.04'
 TOOLS = {'qemu-system-x86_64': ('/usr/bin/qemu-system-x86_64', 'qemu-system-x86'),

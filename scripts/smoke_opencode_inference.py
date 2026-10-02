@@ -27,7 +27,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE = '708bcdd2960ae019579b1c4ce6991ed57653050c'
+CORE = '845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3'
 MODEL = 'qwen3-0.6b-v1'
 GIB = 1024 ** 3
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}

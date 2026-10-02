@@ -17,7 +17,40 @@ test('actual framed socket uses separate handshake and yields exact cleanup-conf
   assert.deepEqual(await f.client.connect(), caps());
   assert.deepEqual(await f.client.submit(input()), original);
   assert.deepEqual(f.requests.map(row => row.operation.type), ['conversation_capabilities', 'submit_conversation']);
+  assert.deepEqual(f.requests[0].operation, { type: 'conversation_capabilities' });
+  assert.equal(Object.hasOwn(f.requests[1].operation.conversation, 'generation_policy'), false);
   await assert.rejects(f.client.ask({ question: 'legacy', context: 'must not send' }));
+});
+
+test('negotiated greedy requests require matching result evidence and cannot silently use a legacy core', async t => {
+  const model = 'qwen3-0.6b-v1';
+  const negotiated = { ...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'] };
+  const request = { ...input(), generation_policy: 'greedy_v1' };
+  for (const evidence of ['greedy_v1', undefined, null, 'sampled']) {
+    const original = { ...result(undefined, model), ...(evidence === undefined ? {} : { generation_policy: evidence }) };
+    const f = await fixture(t, (socket, message) => {
+      reply(socket, message, 'admitted'); reply(socket, message, 'result', { result: original });
+    }, structuredClone(negotiated), { generationPolicyVersion: 1 });
+    await f.client.connect();
+    if (evidence === 'greedy_v1') assert.deepEqual(await f.client.submit(request), original);
+    else await assert.rejects(f.client.submit(request), { code: 'generation_policy_mismatch' });
+    assert.deepEqual(f.requests[0].operation, { type: 'conversation_capabilities', generation_policy_version: 1 });
+    assert.deepEqual(f.requests[1].operation.conversation, request);
+  }
+  for (const advertised of [caps(model), { ...negotiated, generation_policy_version: 2 },
+    { ...negotiated, generation_policies: ['sampled'] }]) {
+    const f = await fixture(t, () => assert.fail('legacy/unknown policy must not submit'), advertised,
+      { generationPolicyVersion: 1 });
+    await assert.rejects(f.client.connect(), { code: 'unsupported_generation_policy' });
+    assert.equal(f.requests.length, 1);
+  }
+  for (const policy of [null, 'sampled', 0]) {
+    assert.throws(() => validateConversation({ ...request, generation_policy: policy }, negotiated),
+      /unsupported_generation_policy/);
+  }
+  assert.throws(() => validateConversation(request, caps(model)), /unsupported_generation_policy/);
+  assert.throws(() => validateConversation(request, { ...caps(), generation_policy_version: 1, generation_policies: [] }),
+    /unsupported_generation_policy/);
 });
 
 test('public/cloud/widened/unknown capabilities fail before any task', async t => {

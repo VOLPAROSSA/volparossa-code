@@ -245,10 +245,32 @@ not proof of real model execution, peer success or private-task confidentiality.
 
 ## Real-model trial driver
 
+### Requested generation behavior
+
+OpenCode's `temperature:0` now requests the core's explicitly negotiated
+`greedy_v1` policy. The adapter first sends `conversation_capabilities` with
+`generation_policy_version:1`, requires the advertised policy, and binds the
+result's `generation_policy` to the submitted input. Missing capability or
+missing/conflicting result evidence is an error, not a sampled fallback.
+An older ordinary conversation client can still use its unchanged handshake;
+omitting the policy retains the core's previous profile behavior.
+
+This corrects a real contract mismatch: the earlier adapter accepted zero
+temperature while the Qwen worker used its default sampled 0.7/0.8/20 profile.
+The fixed worker passes `do_sample:false,num_beams:1`; model, token budgets,
+tool permissions, task and independent success checks remain unchanged.
+Protocol/backend-double checks verify the wiring, not model quality. The earlier
+[run `37066003771`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37066003771)
+remains failed: one completed native read, then an assistant stop, without an edit
+or passing independent check. The mismatch is not a proven explanation for that
+stop, and greedy generation does not guarantee a completed coding task.
+
+### Disposable execution
+
 `scripts/smoke_opencode_inference.py` prepares one explicit disposable Debian 13
 KVM trial; it does not install or run the model on the development host. Its
 `pack` mode captures each Code source/runtime file by hash and the exact core
-archive `708bcdd2960ae019579b1c4ce6991ed57653050c`. A dirty source capture is
+archive `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`. A dirty source capture is
 labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
 the pinned Qwen3-0.6B profile using the existing guarded core provisioner.
 

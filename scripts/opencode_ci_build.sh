@@ -5,7 +5,7 @@ set -euo pipefail
 test "$#" -eq 0
 python3 -B scripts/opencode_ci.py guard
 core="$PWD/build/ci-core"
-test "$(git -C "$core" rev-parse HEAD)" = 708bcdd2960ae019579b1c4ce6991ed57653050c
+test "$(git -C "$core" rev-parse HEAD)" = 845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3
 profile="$core/tests/integration/native-coding-bwrap.apparmor"
 test "$(sha256sum "$profile" | cut -d ' ' -f 1)" = 3f3fefdfc6fe46e882af9b803ddcddd6691083e434b26f5fb244ceddf05b6794
 test "$(dpkg-query -S /usr/bin/bwrap)" = 'bubblewrap: /usr/bin/bwrap'
