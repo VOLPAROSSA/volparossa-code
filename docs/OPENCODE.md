@@ -167,3 +167,40 @@ Its `native-cooperative-smoke-report.json` is separate from the local-tool repor
 Neither report may be relabelled as real inference or immune-policy proof.
 Actual model-driven coding, native editor UI operation, confidential peer
 execution and full immune supervision remain unproved.
+
+## Real-model trial driver
+
+`scripts/smoke_opencode_inference.py` prepares one explicit disposable Debian 13
+KVM trial; it does not install or run the model on the development host. Its
+`pack` mode captures each Code source/runtime file by hash and the exact core
+archive `708bcdd2960ae019579b1c4ce6991ed57653050c`. A dirty source capture is
+labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
+the pinned Qwen3-0.6B profile using the existing guarded core provisioner.
+
+```sh
+python3 -B scripts/smoke_opencode_inference.py
+python3 -B scripts/smoke_opencode_inference.py pack \
+  --core /absolute/core-at-required-revision \
+  --node /absolute/prepared/node \
+  --output /absolute/code-worktree/build/opencode-inference-inputs-01.tar.gz
+python3 -B scripts/smoke_opencode_inference.py execute --yes \
+  --core /absolute/core-at-required-revision \
+  --tools /absolute/verified-workspace-vm-tools \
+  --image /absolute/pinned/debian-13-genericcloud-amd64-20260826-2582.qcow2 \
+  --bundle /absolute/code-worktree/build/opencode-inference-inputs-01.tar.gz \
+  --output /absolute/code-worktree/build/opencode-inference-vm-01
+```
+
+Inputs must already exist and match their pins; output paths must be new. The
+runner prints a no-execution preview without a mode. Actual execution requires
+usable KVM, no other QEMU instance and at least 8 GiB of currently available host
+memory. It owns a 6 GiB/two-vCPU headless guest in a bounded no-swap user cgroup;
+it never closes the owner's applications or changes host routing/DNS/firewall.
+
+The actual runtime/model must read and edit a disposable Python project and run
+its existing tests. A separate sandbox independently checks the result using
+unchanged tests; a generated success message alone is not success. Only bounded
+read/test commands and edits to the selected fixture can be approved. The reports
+separate task execution, model provenance and guest/resource cleanup. Four
+JavaScript and three Python driver checks pass; these checks and a successfully
+packed source bundle are **not** evidence that the real-model trial passes.
