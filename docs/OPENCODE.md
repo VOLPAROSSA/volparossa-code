@@ -195,6 +195,26 @@ the submitted text or answer. The parent topology must independently join these
 to the real workers, retained receipts, protected traffic and VM cleanup. The
 driver and its eight focused checks are **not a completed live-peer proof**.
 
+The core's `agent-cooperative-code` disposable topology consumes an explicit
+offline bundle rather than fetching or executing an unreviewed editor runtime.
+Capture committed Code files and an already source-built OpenCode runtime:
+
+```sh
+python3 -B scripts/pack_opencode_cooperation.py --execute \
+  --code-revision b3a4cfe79158d24e1dd61dcb56d37123f9d3d55c \
+  --node /absolute/prepared/node \
+  --build-report /absolute/build/opencode-runtime/build-report.json \
+  --output /absolute/code-worktree/build/opencode-cooperative-inputs-01
+```
+
+The manifest binds all 25 source/runtime/license files by hash, size and mode.
+The packer reads source blobs at the selected commit, not uncommitted changes,
+and verifies the existing source-build record and pinned Node distribution. It
+does not download or launch anything. Pass this new directory and the reported
+manifest SHA-256 to the core VM runner with `--code-bundle` and
+`--code-manifest-sha256`. Bundle capture and transfer are input preparation,
+not proof of real model execution, peer success or private-task confidentiality.
+
 ## Real-model trial driver
 
 `scripts/smoke_opencode_inference.py` prepares one explicit disposable Debian 13

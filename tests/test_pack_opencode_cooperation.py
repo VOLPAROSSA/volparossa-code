@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: GPL-3.0-only
+import contextlib
+import importlib.util
+import io
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location('pack_cooperation', ROOT / 'scripts/pack_opencode_cooperation.py')
+PACK = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(PACK)
+
+
+class CooperationCaptureTests(unittest.TestCase):
+    def test_preview_is_inert_and_outputs_must_be_new_under_build(self):
+        with patch.object(PACK, 'pack', side_effect=AssertionError('must not capture')), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            PACK.main([])
+        self.assertIs(json.loads(output.getvalue())['execute'], False)
+        with tempfile.TemporaryDirectory() as directory, patch.object(PACK, 'ROOT', Path(directory)):
+            root = Path(directory)
+            (root / 'build').mkdir()
+            target = root / 'build/opencode-cooperative-inputs-fixture'
+            self.assertEqual(PACK.output_path(target), target)
+            for invalid in (root, root / 'build', root / 'outside', target / 'child'):
+                with self.assertRaises(ValueError):
+                    PACK.output_path(invalid)
+            target.mkdir()
+            with self.assertRaises(ValueError):
+                PACK.output_path(target)
+
+    def test_exact_committed_sources_and_existing_binary_are_captured_not_executed(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(PACK, 'ROOT', Path(directory)):
+            root = Path(directory)
+            (root / 'build').mkdir()
+            node = root / 'node-package/bin/node'
+            node.parent.mkdir(parents=True)
+            license = root / 'node-package/LICENSE'
+            binary = root / 'opencode'
+            for file, data in ((node, b'synthetic Node'), (license, b'synthetic license'), (binary, b'synthetic OpenCode')):
+                file.write_bytes(data)
+                file.chmod(0o700)
+            source = {'code/' + name: b'synthetic committed source' for name in PACK.SOURCES}
+            source['code/third_party/opencode.json'] = json.dumps(dict(commit=PACK.PIN, tag='v1.18.34',
+                local_patch='patches/opencode-no-runtime-installs.patch', bun_lock_sha256='a' * 64)).encode()
+            report = root / 'build-report.json'
+            report.write_text(json.dumps(dict(version=1, source_build=True, source_commit=PACK.PIN,
+                runtime_version='1.18.34', lock_sha256='a' * 64,
+                patch_sha256=PACK.sha(source['code/patches/opencode-no-runtime-installs.patch']),
+                license_sha256=PACK.sha(source['code/third_party/opencode-LICENSE.txt']),
+                binary=str(binary), binary_bytes=binary.stat().st_size, binary_sha256=PACK.digest(binary))))
+            report.chmod(0o600)
+            output = root / 'build/opencode-cooperative-inputs-fixture'
+            args = SimpleNamespace(code_revision='b' * 40, node=node, build_report=report, output=output)
+            with patch.object(PACK, 'blobs', return_value=source) as selected, \
+                    patch.object(PACK, 'NODE', (node.stat().st_size, PACK.digest(node))), \
+                    patch.object(PACK, 'NODE_LICENSE', (license.stat().st_size, PACK.digest(license))):
+                result = PACK.pack(args)
+            selected.assert_called_once_with('b' * 40)
+            manifest = json.loads((output / 'INPUTS.json').read_text())
+            self.assertEqual(result['manifest_sha256'], PACK.digest(output / 'INPUTS.json'))
+            self.assertEqual(result['files'], 25)
+            self.assertIs(result['actual_peer_execution'], False)
+            for name, expected in manifest['files'].items():
+                actual = output / name
+                self.assertEqual(expected, dict(bytes=actual.stat().st_size,
+                    sha256=PACK.digest(actual), mode=actual.stat().st_mode & 0o777))
+
+
+if __name__ == '__main__':
+    unittest.main()
