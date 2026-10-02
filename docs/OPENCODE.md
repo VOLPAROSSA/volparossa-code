@@ -69,6 +69,14 @@ Only the selected project is writable as `/workspace`; configuration and session
 state are temporary. Host routes, DNS and firewall remain unchanged. Upstream
 permissions are defense in depth, not the OS sandbox.
 
+The configured `build`, `general` and read-only `explore` agents use a compact
+prompt for the current Qwen single-tool conversation interface. Each tool turn
+must propose one offered call, then wait for its correlated result. This replaces
+the pinned upstream default prompt, which explicitly requests parallel tool calls
+that this core interface cannot represent. Workspace/approval permissions,
+read/edit/test requirements and core-owned scheduling are unchanged. This prompt
+alignment does not itself prove that the model can complete a coding task.
+
 Supported message/tool history and call identities are preserved. Unsupported
 inputs fail rather than being silently shortened or stripped. The provider waits
 for core cleanup before returning SDK-compatible SSE or JSON; this is not
@@ -281,3 +289,15 @@ preserves the first closed task-error category separately from session and runti
 cleanup failures, plus bounded provider result/error counters. It exports no raw
 prompt, code, model answer or exception text. This diagnostic correction does not
 turn the original failed trial into a pass.
+
+The subsequent `opencode-inference-vm-04` trial used Code
+`11a7063f178a3094c0d6f2d1052894f1fef8dc4a` and the same exact core revision. The real
+Qwen worker reached an EOS-complete, non-truncated output that failed the strict
+conversation decoder: one submitted turn, `invalid_output`, no retry and no
+approved edit or test. The original `opencode_task_incomplete` error remained
+visible; runtime cleanup was confirmed, guest processes/private state and QEMU
+scratch were removed, and observed host routes/DNS were unchanged. The retained
+closed diagnostics do not identify the malformed output shape; raw output was
+not exported. The parallel-prompt conflict above is a verified integration issue,
+**not a proven explanation of this particular failure**. Its correction still
+requires a new real-model trial; VM04 remains failed.
