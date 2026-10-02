@@ -63,7 +63,9 @@ test('manifest declares trust and machine scope without telemetry, accounts or a
   const value = JSON.parse(readFileSync(new URL('../package.json', `file://${__filename}`)));
   assert.equal(value.capabilities.untrustedWorkspaces.supported, false);
   assert.equal(value.contributes.configuration.properties['volparossaCode.privateSocket'].scope, 'machine');
-  assert.equal(value.contributes.configuration.properties['volparossaCode.nativeRuntime'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.openCodeRuntime'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.publicSocket'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.nativeRuntime'], undefined);
   assert.equal(value.dependencies, undefined); assert.equal(value.activationEvents, undefined);
 });
 
@@ -72,28 +74,22 @@ function codingFixture() {
   const native = {
     Runtime: {async start(config, options) {
       events.push(['launch', config, options]);
-      return {readable: {}, writable: {}, async close() { events.push(['cleanup']); }};
+      return {async close() { events.push(['cleanup']); },
+        async run(prompt, {approve, onStatus}) {
+          events.push(['task', prompt]);
+          assert.equal(await approve({permission: 'bash', command: 'node --test', directory: '.'}), true);
+          onStatus({commands: 1, status: 'completed'});
+          return {text: 'Generated reply', commands: 1, nativeTurnCompleted: true, taskVerified: false};
+        },
+        async stop() { events.push(['stop']); },
+      };
     }},
-    Server: class {
-      constructor(_read, _write, options) { events.push(['server', options]); }
-      close() { events.push(['server-close']); }
-    },
-    Task: class {
-      constructor(_server, approval, options) { this.approval = approval; this.options = options; }
-      async run(prompt) {
-        events.push(['task', prompt]);
-        assert.equal(await this.approval({command: 'node --test', directory: '.'}), true);
-        this.options.onStatus({commands: 1, status: 'completed'});
-        return {text: 'Generated reply', commands: 1, nativeTurnCompleted: true, taskVerified: false};
-      }
-      async stop() { events.push(['stop']); }
-    }
   };
   const f = fixture({native});
   f.api.workspace.workspaceFolders = [{name: 'project', uri: {scheme: 'file', fsPath: '/projects/selected'}}];
   f.api.workspace.getConfiguration = () => ({inspect: key => ({
-    globalValue: key === 'privateSocket' ? '/run/owner/conversation.sock' : {version: 1, appServer: '/explicit/runtime'},
-    workspaceValue: key === 'privateSocket' ? '/tmp/untrusted.sock' : {appServer: '/project/untrusted-runtime'}
+    globalValue: key === 'privateSocket' ? '/run/owner/conversation.sock' : {version: 1, opencode: '/explicit/runtime'},
+    workspaceValue: key === 'privateSocket' ? '/tmp/untrusted.sock' : {opencode: '/project/untrusted-runtime'}
   })});
   f.api.window.showInformationMessage = async (_text, _options, action) => action;
   f.api.window.showWarningMessage = async (text, options, action) => {
@@ -108,12 +104,10 @@ function codingFixture() {
 test('explicit coding command launches only user-selected inputs, asks one-shot approval and waits for cleanup', async () => {
   const f = codingFixture(); assert.deepEqual(f.events, []);
   await f.commands.get('volparossaCode.codingTask')();
-  assert.deepEqual(f.events[0], ['launch', {version: 1, appServer: '/explicit/runtime', socketPath: '/run/owner/conversation.sock'},
+  assert.deepEqual(f.events[0], ['launch', {version: 1, opencode: '/explicit/runtime', socketPath: '/run/owner/conversation.sock'},
     {workspace: '/projects/selected'}]);
-  const options = f.events.find(e => e[0] === 'server')[1];
-  assert.equal(options.writableRoot, '/workspace'); assert.deepEqual(options.allowedModels, ['qwen3-0.6b-v1']);
   assert(f.events.find(e => e[0] === 'approval')[1].includes('node --test'));
-  assert.deepEqual(f.events.slice(-2), [['server-close'], ['cleanup']]);
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
   assert.equal(f.documents[0].language, 'plaintext');
   assert.match(f.documents[0].content, /not independently verified/);
   assert.match(f.documents[0].content, /Generated reply/); assert.deepEqual(f.errors, []);
@@ -130,7 +124,8 @@ test('cancelled consent, remote, untrusted and missing folders never launch a na
 
 test('runtime cleanup failure never displays a successful coding result or raw private error', async () => {
   const f = codingFixture();
-  f.native.Runtime.start = async () => ({readable: {}, writable: {}, async close() { throw Error('private-token-and-path'); }});
+  f.native.Runtime.start = async () => ({async run() { return {text: 'unreleased', commands: 0}; },
+    async close() { throw Error('private-token-and-path'); }});
   await f.commands.get('volparossaCode.codingTask')();
   assert.deepEqual(f.documents, []); assert.equal(f.errors.length, 1);
   assert(!f.errors[0].includes('private-token-and-path'));
@@ -140,7 +135,7 @@ test('deactivation during native startup closes the new runtime without beginnin
   const f = codingFixture(); let joined = false;
   f.native.Runtime.start = async () => {
     f.context.subscriptions.at(-1).dispose();
-    return {readable: {}, writable: {}, async close() { joined = true; }};
+    return {async close() { joined = true; }};
   };
   await f.commands.get('volparossaCode.codingTask')();
   assert.equal(joined, true); assert.deepEqual(f.events, []); assert.deepEqual(f.documents, []);
@@ -154,6 +149,42 @@ test('deactivation while progress callback is queued cannot begin native inferen
   };
   await f.commands.get('volparossaCode.codingTask')();
   assert(!f.events.some(e => e[0] === 'task'));
-  assert.deepEqual(f.events.slice(-2), [['server-close'], ['cleanup']]);
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
   assert.deepEqual(f.documents, []);
+});
+
+test('public coding enrollment contains only the exact reviewed excerpt and public question', async () => {
+  const f = codingFixture(), opaque = Object.freeze({}), enrollments = [];
+  const original = f.api.workspace.getConfiguration;
+  f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
+    ? {globalValue: '/run/owner/public.sock', workspaceValue: '/tmp/attacker.sock'}
+    : original().inspect(key)});
+  const questions = ['Review this public function.', 'Private task context must stay with the local model.'];
+  f.api.window.showInputBox = async () => questions.shift();
+  f.api.window.showQuickPick = async values => { assert(values.includes('GPL-3.0-only')); return 'GPL-3.0-only'; };
+  f.native.createPublicSnapshot = value => { enrollments.push(value); return opaque; };
+  await f.commands.get('volparossaCode.codingPublicTask')();
+  assert.deepEqual(enrollments, [{question: 'Review this public function.', context: 'const answer = 42;',
+    license: 'GPL-3.0-only', public_content: true, rights_confirmed: true}]);
+  const launch = f.events.find(event => event[0] === 'launch');
+  assert.deepEqual(launch[2].cooperation, {socketPath: '/run/owner/public.sock', snapshot: opaque});
+  assert.equal(launch[1].cooperativeSocketPath, undefined);
+  assert(f.events.find(event => event[0] === 'task')[1].includes('volparossa_delegate_public'));
+  assert(f.documents[0].content.includes('Exact selected code:\nconst answer = 42;'));
+  assert(!JSON.stringify(enrollments).includes('Private task'));
+  assert.deepEqual(f.errors, []);
+});
+
+test('public snapshot cancellation or invalid socket cannot launch or authorize sharing', async () => {
+  for (const missing of [false, true]) {
+    const f = codingFixture();
+    const original = f.api.workspace.getConfiguration;
+    f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
+      ? {globalValue: missing ? '' : '/run/owner/public.sock'} : original().inspect(key)});
+    f.api.window.showQuickPick = async () => 'GPL-3.0-only';
+    f.api.window.showWarningMessage = async () => undefined;
+    f.native.createPublicSnapshot = () => assert.fail('no enrollment');
+    await f.commands.get('volparossaCode.codingPublicTask')();
+    assert.deepEqual(f.events, []);
+  }
 });

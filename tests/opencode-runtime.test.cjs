@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: GPL-3.0-only
+'use strict';
+// Synthetic framing and lifecycle only: no OpenCode binary, model or real workspace.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {spawn} = require('node:child_process');
+const {PassThrough, Writable} = require('node:stream');
+const {configuration, ownedOpenCode} = require('../src/opencode-runtime.cjs');
+const {readFrames, writeFrame} = require('../src/opencode-bridge.cjs');
+const READY = {type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false};
+const RESULT = {text: 'Synthetic answer.', commands: 1, nativeTurnCompleted: true, taskVerified: false};
+function child(t, program) {
+  const process = spawn(require('node:process').execPath, ['-e', program], {stdio: ['pipe', 'pipe', 'pipe'],
+    env: {PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', ELECTRON_RUN_AS_NODE: '1'}});
+  t.after(() => { if (process.exitCode === null && process.signalCode === null) process.kill('SIGKILL'); });
+  return process;
+}
+function script(onFrame, {ready = READY, exitCode = 0} = {}) {
+  return `const send = value => process.stdout.write(JSON.stringify(value)+'\\n');
+send(${JSON.stringify(ready)});
+const lines=require('node:readline').createInterface({input:process.stdin});
+lines.on('line',line=>{const frame=JSON.parse(line);${onFrame}});
+lines.on('close',()=>{process.exitCode=${exitCode};});`;
+}
+test('OpenCode runtime config accepts only exact explicit pinned inputs', () => {
+  const config = {version: 1, opencode: '/fixture/opencode', opencodeSha256: 'a'.repeat(64),
+    buildReport: '/fixture/BUILD_REPORT.json', node: '/fixture/node', nodeSha256: 'b'.repeat(64), socketPath: '/fixture/private/core.sock'};
+  assert.deepEqual(configuration(config, '/fixture/project'), config);
+  for (const changed of [{...config, appServer: '/fixture/codex'}, {...config, opencodeSha256: 'bad'},
+    {...config, socketPath: 'relative'}, {...config, version: 2}]) {
+    assert.throws(() => configuration(changed, '/fixture/project'), /opencode_runtime/);
+  }
+  assert.throws(() => configuration(config, 'relative'), /opencode_runtime/);
+});
+test('framing handles split UTF8 and rejects malformed or trailing input', () => {
+  const input = new PassThrough(), got = []; let bad = 0;
+  const unbind = readFrames(input, value => got.push(value), () => bad++);
+  const bytes = Buffer.from('{"type":"synthetic","text":"café"}\r\n');
+  const split = bytes.indexOf(Buffer.from('é')) + 1;
+  input.write(bytes.subarray(0, split)); input.write(bytes.subarray(split));
+  assert.deepEqual(got, [{type: 'synthetic', text: 'café'}]);
+  input.write('not-json\n'); input.write('{"type":"ignored"}\n'); assert.equal(bad, 1); assert.equal(got.length, 1);
+  unbind(); assert.equal(input.listenerCount('data'), 0);
+  const truncated = new PassThrough(); readFrames(truncated, () => assert.fail(), () => bad++);
+  truncated.end('{"type":');
+  return new Promise(resolve => truncated.once('end', () => { assert.equal(bad, 2); resolve(); }));
+});
+test('ready, task, one-shot approval and status roundtrip; clean owner exit required', async t => {
+  const process = child(t, script(`
+if(frame.type==='run') {
+ if(frame.prompt!=='Synthetic task') process.exit(2);
+ send({type:'approval',id:1,proposal:{permission:'bash',command:'synthetic-command',directory:'/workspace'}});
+} else if(frame.type==='approval') {
+ if(frame.id!==1 || frame.accepted!==true) process.exit(3);
+ send({type:'status',commands:1,status:'completed'}); send({type:'result',result:${JSON.stringify(RESULT)}});
+} else process.exit(4);`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  const proposals = [], statuses = [];
+  const result = await runtime.run('Synthetic task', {approve: async p => { proposals.push(p); return true; }, onStatus: s => statuses.push(s)});
+  assert.deepEqual(result, RESULT); assert.equal(proposals[0].permission, 'bash');
+  assert.deepEqual(statuses, [{commands: 1, status: 'completed'}]);
+  assert.equal(runtime.execution, 'private_local'); assert.equal(runtime.confidentialRemoteAvailable, false);
+  await Promise.all([runtime.close(), runtime.close()]); assert.equal(process.exitCode, 0);
+  await assert.rejects(runtime.run('Again'), /opencode_runtime/);
+});
+test('cancel sends cancellation, declines late UI answers, and returns only generic failure', async t => {
+  const process = child(t, script(`
+if(frame.type==='run') send({type:'approval',id:1,proposal:{permission:'edit',command:'Edit synthetic.txt',directory:'/workspace'}});
+else if(frame.type==='cancel') send({type:'failed'});
+else if(frame.type==='approval' && frame.accepted===true) process.exit(7);`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  const controller = new AbortController(); let finish;
+  const pending = runtime.run('Synthetic task', {signal: controller.signal, approve: () => {
+    queueMicrotask(() => controller.abort()); return new Promise(resolve => { finish = resolve; });
+  }});
+  await assert.rejects(pending, error => error.message === 'opencode_runtime_unavailable_or_cleanup_unconfirmed');
+  finish(true); await runtime.close(); assert.equal(process.exitCode, 0);
+});
+test('foreign readiness and replayed permissions fail closed', async t => {
+  const wrong = child(t, script('', {ready: {...READY, confidentialRemoteAvailable: true}}));
+  await assert.rejects(ownedOpenCode(wrong, {startupMs: 1000, closeMs: 1000}), /opencode_runtime/);
+  const replay = child(t, script(`if(frame.type==='run') {
+    const event={type:'approval',id:1,proposal:{permission:'bash',command:'synthetic'}}; send(event); send(event);
+  }`));
+  const runtime = await ownedOpenCode(replay, {startupMs: 1000, closeMs: 1000});
+  await assert.rejects(runtime.run('Task', {approve: async () => false}), /opencode_runtime/);
+  await assert.rejects(runtime.close(), /opencode_runtime/);
+});
+test('result text does not conceal failed cleanup or forced process termination', async t => {
+  const failed = child(t, script(`if(frame.type==='run') send({type:'result',result:${JSON.stringify(RESULT)}});`, {exitCode: 1}));
+  const runtime = await ownedOpenCode(failed, {startupMs: 1000, closeMs: 1000});
+  assert.deepEqual(await runtime.run('Task'), RESULT);
+  await assert.rejects(runtime.close(), /cleanup_unconfirmed/);
+  const stuck = child(t, `process.stdout.write(${JSON.stringify(JSON.stringify(READY) + '\n')});setInterval(()=>{},1000);`);
+  const other = await ownedOpenCode(stuck, {startupMs: 1000, closeMs: 20, killMs: 20});
+  await assert.rejects(other.close(), /cleanup_unconfirmed/); assert.ok(stuck.signalCode);
+});
+test('writeFrame refuses closed streams and excessive single frames', () => {
+  const stream = new PassThrough(); stream.resume();
+  assert.throws(() => writeFrame(stream, {type: 'huge', text: 'x'.repeat(524288)}), /bridge/);
+  stream.end(); assert.throws(() => writeFrame(stream, {type: 'closed'}), /bridge/);
+});
+test('terminal response prevents acceptance of an unresolved approval', async t => {
+  const process = child(t, script(`if(frame.type==='run') {
+    send({type:'approval',id:1,proposal:{permission:'bash',command:'synthetic'}});
+    send({type:'result',result:${JSON.stringify(RESULT)}});
+  } else if(frame.type==='approval') process.exit(9);`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  let accept;
+  const result = await runtime.run('Task', {approve: () => new Promise(resolve => { accept = resolve; })});
+  assert.deepEqual(result, RESULT); accept(true);
+  await runtime.close(); assert.equal(process.exitCode, 0);
+});
+test('unexpected complete stdout EOF rejects an active task promptly', async t => {
+  const process = child(t, script(`if(frame.type==='run') process.stdout.end();`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  await assert.rejects(runtime.run('Task'), /opencode_runtime/);
+  await assert.rejects(runtime.close(), /opencode_runtime/);
+});
+test('ignored cancellation has a separate bounded deadline', async t => {
+  const process = child(t, script('')); // Intentionally ignores run/cancel.
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000, cancelMs: 20});
+  const controller = new AbortController();
+  const pending = runtime.run('Task', {signal: controller.signal}); controller.abort();
+  await assert.rejects(pending, /opencode_runtime/);
+  await assert.rejects(runtime.close(), /opencode_runtime/);
+});
+test('outbound buffered frames cannot grow beyond the aggregate limit', () => {
+  const blocked = new Writable({write(_chunk, _encoding, _callback) {}});
+  try {
+    writeFrame(blocked, {type: 'synthetic', text: 'x'.repeat(300000)});
+    assert.throws(() => writeFrame(blocked, {type: 'synthetic', text: 'y'.repeat(300000)}), /bridge/);
+    assert.ok(blocked.writableLength < 524288);
+  } finally { blocked.destroy(); }
+});
+test('second terminal response invalidates the owner receipt', async t => {
+  const process = child(t, script(`if(frame.type==='run') {
+    send({type:'result',result:${JSON.stringify(RESULT)}});
+    send({type:'result',result:${JSON.stringify(RESULT)}});
+  }`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  await runtime.run('Task');
+  await assert.rejects(runtime.close(), /opencode_runtime/);
+});

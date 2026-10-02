@@ -1,122 +1,119 @@
 # Project VOLPAROSSA Code
 
-**An open editor companion for the VOLPAROSSA cooperative network.**
+**OpenCode tools. VOLPAROSSA intelligence. Cooperative development.**
 
-The destination is a coding assistant built on the **open Codex CLI/app-server**,
-with VOLPAROSSA supplying intelligence and organizing collaboration. This is an
-independent GPL-3.0-only extension for VS Code/VSCodium—not a repackaged copy of
-OpenAI's proprietary IDE extension, and not an OpenAI-backed service.
+VOLPAROSSA Code connects the open-source **OpenCode** coding runtime to the
+VOLPAROSSA core. The goal is a network-native assistant that can read, change
+and check code, distribute useful work, combine agent results and improve its
+working methods—without making the power of one device the limit.
 
-## Who does what?
+OpenCode replaces the earlier Codex CLI/app-server foundation. Suitable upstream
+apps, clients and editor integrations can share the same core connection. The
+first integration is a development extension for VS Code/VSCodium on Linux;
+cross-platform applications and packaging are not yet complete.
+
+## One coordinator, multiple cooperating agents
 
 ```mermaid
-flowchart LR
-    Editor["VOLPAROSSA Code\nUser intent, selection, approvals"] --> Runtime["Open Codex runtime\nLocal agent and tool loop"]
-    Runtime --> Core["VOLPAROSSA core\nModels, task coordination, cancellation"]
-    Core --> Private["Private local inference"]
-    Core --> Cooperative["Eligible cooperative tasks\nExplicit sharing boundary"]
-    Runtime --> Tools["Approved local workspace tools"]
+flowchart TD
+    UI["Editor / OpenCode client<br/>Intent, project scope, approvals"] --> Runtime["OpenCode runtime<br/>Tools and subagent sessions"]
+    Runtime --> Core["VOLPAROSSA core<br/>Placement, models, cancellation, accounting"]
+    Core --> A["Network agent A<br/>Suitable authorized work"]
+    Core --> B["Network agent B<br/>Parallel work and review"]
+    Core --> C["Protected network execution<br/>Private work · required, not implemented"]
+    Core --> Local["Local executor<br/>Fallback and development"]
+    A --> Core
+    B --> Core
+    C --> Core
+    Runtime --> Tools["Workspace-scoped tools<br/>Explicit edit / command authority"]
+    Immune["Immune system<br/>Admission, behavior, results"] -.-> Core
 ```
 
-This diagram describes the **target integration**, not an already completed
-coding datapath. The core owns peer selection and cooperation; the editor must
-not create a separate peer scheduler or treat model output as permission to run
-commands. Private prompts, code, tool output and repository history are not
-automatically public training or cache material.
+This is the **target architecture**, not a claim that every arrow works today.
+Network cooperation and collective improvement are the default design, including
+private projects. Core owns peer scheduling; OpenCode's local subagents do not
+themselves provide a decentralized network or confidential remote execution.
 
-## First executable slice
+Privacy belongs inside cooperation. Encrypted transport and task splitting alone
+do not hide code from the device doing ordinary inference. Code, prompts, tool
+output and history are not automatically public cache or training data. A local-only
+assistant does not fulfill the goal of the shared VOLPAROSSA brain.
 
-The extension implements explicit commands:
+## Current executable integration
 
-- **VOLPAROSSA: Ask About Selected Code (Private, Local)** sends only a confirmed
-  question and selection to an existing same-owner `compute private-serve` socket.
-  Responses appear as untrusted plaintext; no changes are applied automatically.
-- **VOLPAROSSA: Show Compute Capabilities** queries that service without sending
-  code or claiming that a model has successfully executed.
-- **VOLPAROSSA: Run Native Coding Task (Private, Local)** explicitly launches a
-  prepared, source-verified open Codex runtime in an isolated Linux workspace and
-  connects it to the existing local VOLPAROSSA conversation service. The native
-  agent can read, change and check that selected project, with one-shot command
-  approvals and cancellation. See [setup and current proof limits](docs/NATIVE_EDITOR.md).
+**VOLPAROSSA: Run OpenCode Task (Development)** selects the new OpenCode launcher,
+not Codex. It joins these implemented components:
 
-The selected-code advice interface permits **512 UTF-8 bytes for the question and 4096
-for the selection**, subject to the selected model's smaller token budget.
-Over-limit inputs fail instead of being silently shortened. Partial model output
-remains labeled partial. Cancellation is forwarded; uncertain cleanup is not
-reported as success. There is no public-peer or OpenAI fallback.
+- Pinned OpenCode **v1.18.34**, authenticated HTTP sessions and SSE events.
+- A Chat Completions provider translating text and function-tool history into
+  the core's typed conversation interface.
+- One-shot command/edit approvals, correlated root and child sessions,
+  cancellation, session deletion and owned-process cleanup.
+- An explicit Linux launcher with a selected writable project, temporary state,
+  no inherited account credentials and no external network interface.
 
-The first two commands use the core directly, not through Codex. The new native
-coding command uses the app-server, but is **not yet proved in a native editor
-with real model-driven editing**. The app-server client implements the pinned NDJSON handshake,
-thread/turn requests, notifications and interruption, and declines tool approvals
-by default. An explicit caller can supply a narrowly scoped per-command approval
-policy; only the explicit native coding command enables an interactive one-shot
-policy for the selected project. Its focused protocol tests are
-now complemented by a **real, source-built app-server lifecycle trial**:
-initialization, an ephemeral VOLPAROSSA-provider thread, exact unsubscribe and
-clean shutdown pass in disposable namespaces without OpenAI credentials or
-network access. This trial does not send a model turn or execute tools.
+**Current proof:** the pinned OpenCode source builds and the actual runtime
+completes a tool loop through the production launcher and adapters: one approved
+command changes a disposable file, its tool result returns to the core interface,
+and the session shuts down cleanly. A second native trial invokes the cooperative
+tool, preserves complete and incomplete core results, and confirms that only the
+enrolled public snapshot crosses the bridge. Both trials use **synthetic core/model
+replies**, not real inference or peer execution. Focused checks additionally cover
+adapter, editor and lifecycle behavior. Model-driven coding, native editor UI
+operation, protected peer execution and a finished immune-policy path remain unproved.
 
-Separately, the [real core/model trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/36738995292)
-passes with this repository's pinned private client and the 360M model: a small
-synthetic-code question produces a complete answer containing its identifier,
-with cancellation, isolation and cleanup checks. This is an adapter proof, not
-a native-editor test or a measure of general coding quality.
+The available conversation executor is still **private and local**. Its scope is
+shown honestly; the adapter does not disguise it as network compute or export
+private input through the public peer interface.
 
-See the [explicit runtime build and native trial](docs/RUNTIME_BUILD.md). Nothing
-is downloaded or started merely by installing or activating the extension.
+**VOLPAROSSA: Run OpenCode Task with Enrolled Public Work** additionally connects
+one explicitly reviewed public question and selected excerpt to the core's
+cooperative task interface. The model can invoke this task once; it cannot append
+private files or history to it. A limited owner-side proxy keeps the raw public
+core socket outside the coding sandbox. Core owns peer placement, execution and
+cancellation; original task results and incomplete-answer flags are retained.
+This interface currently requires the separate core cooperative-compute candidate,
+not stock `main`. The joined path with actual peer inference remains to be proved.
 
-The next [local Responses adapter](docs/RESPONSES_PROVIDER.md) now connects a
-bounded text/tool subset to the core's separate conversation interface. It retains
-call/result identities and waits for confirmed core cleanup before returning a
-completed turn. Its real HTTP/Unix-socket tests use synthetic model responses;
-the actual Codex/model/tool loop is **not proved yet**. The new Qwen conversation
-profile is a larger-context candidate, not evidence of reliable coding performance.
+This public-only development step is **not** the intended limit of cooperation:
+default collaboration, shared learning and protected private execution across
+the network remain required functionality.
 
-An explicit [native coding trial](docs/NATIVE_CODING_TRIAL.md) now supplies the
-missing model catalog and disposable read/edit/test harness. It uses the full
-pinned Codex prompt, actual core inference and native tools, with approvals limited
-to one synthetic project. The harness is implemented and its offline checks pass;
-the actual model-driven coding trial is still pending.
+The existing **Ask About Selected Code (Private, Local)** and **Show Compute
+Capabilities** commands remain available. Selected-code advice sends only the
+confirmed question and excerpt to the same-owner core socket. It does not change
+files or execute tools.
 
-## Try the development extension
+## Development setup
 
-On Linux, explicitly prepare and start the core's private service following its
-[IPC contract](https://github.com/VOLPAROSSA/volparossa/blob/main/crates/volparossa/src/compute/private_serve/WIRE.md).
-The extension does not install runtimes/models, start participation, change
-network settings or read your existing Codex credentials/configuration.
+See [OpenCode setup, isolation and proof boundaries](docs/OPENCODE.md).
+Use a trusted local workspace and explicitly provision the pinned runtime and
+core/model service. Opening the extension or a project starts no model, runtime
+or network participation. No OpenAI login or automatic cloud fallback is used.
 
-Open this repository as an **extension development directory** in VS Code or
-VSCodium. In the development instance's user settings, set
-`volparossaCode.privateSocket` to the service's absolute Unix-socket path. Use a
-trusted, local workspace, select a short snippet, then invoke the command from
-the command palette. No npm dependencies are required. Do not treat this as a
-packaged or native-editor-tested release yet.
-
-With Node 22 or newer, the focused checks are:
+Run focused checks with Node 22 or newer:
 
 ```sh
-npm test
-npm run check
+node --test tests/opencode-*.test.cjs tests/cooperative-*.test.cjs tests/chat-completions-provider.test.cjs tests/extension.test.cjs
 ```
 
-## Remaining integration work
+Original integration code is GPL-3.0-only. OpenCode is MIT-licensed; its original
+notice and source pin are preserved in [third-party provenance](THIRD_PARTY_LICENSES.md).
 
-- Prove the new conversation/provider interface with an actual model and the
-  native Codex Responses/tool loop; the bounded Q&A endpoint stays separate.
-- Prove the new explicit runtime/extension/provider connection in a native editor,
-  retaining its isolated configuration and upstream notices; never use the
-  owner's OpenAI login or cloud fallback.
-- Complete native conversation/tool interoperability, reviewable diffs and local
-  approvals, then prove an actual edit-and-test coding task end to end.
-- Delegate eligible work through the core's cooperative scheduler, with explicit
-  privacy scope, cancellation, resource accounting and result provenance.
-- Run a native editor test against a real core/model and package the extension.
+## Remaining work
 
-The small models currently supported by the core are not a claim of Codex-class
-coding performance. Installing this frontend alone does not supply a stronger
-model, private distributed inference or a completed cooperative coding agent.
+- Exercise the source-built OpenCode runtime with actual core inference and a
+  model-driven read/edit/test task, then verify native editor operation.
+- Prove the connected cooperative tool with actual core/peer execution, then
+  integrate its core dependency; retain original results, cancellation and provenance.
+- Implement remote conversation execution and actual protected private work,
+  with suitable model capacity and measured performance.
+- Join immune-policy admission, result review and approved shared learning to
+  those paths; local approval dialogs alone do not provide that system.
+- Reuse suitable upstream clients on additional platforms and package verified
+  integrations without silently downloading runtimes or changing host settings.
 
-See [upstream provenance](THIRD_PARTY_LICENSES.md), the
-[open Codex app-server documentation](https://learn.chatgpt.com/docs/app-server)
-and the [open-source boundary](https://learn.chatgpt.com/docs/open-source).
+Earlier [Codex runtime](docs/RUNTIME_BUILD.md), [Responses adapter](docs/RESPONSES_PROVIDER.md)
+and [native-editor](docs/NATIVE_EDITOR.md) records remain **historical evidence**.
+Their checks do not prove OpenCode operation. Small provisioned models do not
+establish competitive coding quality or the capacity of the eventual shared brain.

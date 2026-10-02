@@ -1,0 +1,22 @@
+diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
+--- a/packages/opencode/src/config/config.ts
++++ b/packages/opencode/src/config/config.ts
+@@ -450,14 +450,15 @@
+           yield* ensureGitignore(dir).pipe(Effect.orDie)
+ 
+-          const dep = yield* npmSvc
+-            .install(dir, {
++          const dep = yield* (process.env.VOLPAROSSA_NO_RUNTIME_INSTALLS === "1"
++            ? Effect.void
++            : npmSvc.install(dir, {
+               add: [
+                 {
+                   name: "@opencode-ai/plugin",
+                   version: InstallationLocal ? undefined : InstallationVersion,
+                 },
+               ],
+-            })
++            }))
+             .pipe(
+               Effect.exit,
+               Effect.tap((exit) =>
