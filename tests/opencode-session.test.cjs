@@ -33,7 +33,8 @@ function fixture(Task, receive, options = {}) {
   };
   const unbind = readFrames(output, value => {
     observed.push(value.type);
-    if (value.type === 'ready') writeFrame(input, {type: 'run', prompt: 'Synthetic task'});
+    if (value.type === 'ready') writeFrame(input, {type: 'run', prompt: 'Synthetic task',
+      ...(options.verification ? {verification: options.verification} : {})});
     else receive(value, input);
   }, () => assert.fail('owner frame'));
   return {observed, input, done: runSession({input, output, events}, hooks).finally(unbind)};
@@ -146,4 +147,38 @@ test('owner returns observed native lifecycle on both successful and failed turn
     });
     assert.equal(await f.done, 0);
   }
+});
+test('inner owner forwards only explicit verification selection and correlates actual feedback', async () => {
+  class Task {
+    async run(_prompt, {signal, verify, maxVerificationRounds}) {
+      assert.equal(maxVerificationRounds, 2);
+      const receipt = await verify({round: 1, remainingMs: 1000, signal});
+      assert.deepEqual(receipt, {status: 'failed', feedback: 'Exact owner check output'});
+      const second = await verify({round: 2, remainingMs: 900, signal});
+      assert.equal(second.status, 'passed'); return result;
+    }
+  }
+  const f = fixture(Task, (value, input) => {
+    if (value.type === 'verification') writeFrame(input, {type: 'verification', id: value.id,
+      status: value.round === 1 ? 'failed' : 'passed', feedback: value.round === 1 ? 'Exact owner check output' : ''});
+    else if (value.type === 'result') input.end();
+  }, {verification: {version: 1, maxRounds: 2}});
+  assert.equal(await f.done, 0);
+  assert.equal(f.observed.filter(value => value === 'verification').length, 2);
+});
+test('inner cancellation expires verifier request and a late receipt cannot revive a task', async () => {
+  class Task {
+    async run(_prompt, {signal, verify}) {
+      const receipt = await verify({round: 1, remainingMs: 1000, signal});
+      assert.equal(receipt.status, 'unavailable');
+      assert.equal(signal.aborted, true); throw Error('opencode_task_cancelled');
+    }
+  }
+  const f = fixture(Task, (value, input) => {
+    if (value.type === 'verification') {
+      writeFrame(input, {type: 'cancel'});
+      writeFrame(input, {type: 'verification', id: value.id, status: 'passed', feedback: ''});
+    } else if (value.type === 'failed') input.end();
+  }, {verification: {version: 1, maxRounds: 2}});
+  assert.equal(await f.done, 0); assert.ok(!f.observed.includes('result'));
 });

@@ -198,3 +198,57 @@ test('native lifecycle bridge rejects raw text, arbitrary tools and malformed co
     await assert.rejects(runtime.close(), /cleanup_unconfirmed/);
   }
 });
+test('verification bridge carries actual owner feedback and scoped selected-check status', async t => {
+  const verified = {...RESULT, verification: {status: 'passed', checks: 2, continuations: 1}};
+  const process = child(t, script(`if(frame.type==='run') {
+    if(frame.verification.version!==1 || frame.verification.maxRounds!==2) process.exit(4);
+    send({type:'verification',id:1,round:1,remainingMs:1000});
+  } else if(frame.type==='verification' && frame.id===1) {
+    if(frame.status!=='failed' || frame.feedback!=='Exact check output') process.exit(5);
+    send({type:'verification',id:2,round:2,remainingMs:900});
+  } else if(frame.type==='verification' && frame.id===2) {
+    if(frame.status!=='passed') process.exit(6);
+    send({type:'result',result:${JSON.stringify(verified)}});
+  } else process.exit(7);`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+  const checks = [];
+  assert.deepEqual(await runtime.run('Task', {maxVerificationRounds: 2, verify: async context => {
+    checks.push(context); return context.round === 1 ? {status: 'failed', feedback: 'Exact check output'}
+      : {status: 'passed', feedback: ''};
+  }}), verified);
+  assert.deepEqual(checks.map(check => [check.round, check.remainingMs]), [[1, 1000], [2, 900]]);
+  await runtime.close();
+});
+test('native owner cannot invent a passing receipt, change its status or continue after unavailable', async t => {
+  const claimed = {...RESULT, verification: {status: 'passed', checks: 1, continuations: 0}};
+  for (const mode of ['premature', 'rewrite', 'after-unavailable']) {
+    const process = child(t, script(`if(frame.type==='run') {
+      send({type:'verification',id:1,round:1,remainingMs:1000});
+      if(${JSON.stringify(mode)}==='premature') send({type:'result',result:${JSON.stringify(claimed)}});
+    } else if(frame.type==='verification') {
+      if(${JSON.stringify(mode)}==='after-unavailable') send({type:'verification',id:2,round:2,remainingMs:900});
+      else send({type:'result',result:${JSON.stringify(claimed)}});
+    }`));
+    const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000, cancelMs: 1000});
+    await assert.rejects(runtime.run('Task', {verify: async ({signal}) => {
+      if (mode === 'premature' && !signal.aborted) await new Promise(resolve => signal.addEventListener('abort', resolve, {once: true}));
+      return {status: mode === 'rewrite' ? 'failed' : 'unavailable', feedback: 'Actual check status'};
+    }}), /opencode_runtime/);
+    await assert.rejects(runtime.close(), /opencode_runtime/);
+  }
+});
+test('cancellation joins an active owner verifier before returning, with no late feedback', async t => {
+  const process = child(t, script(`if(frame.type==='run') send({type:'verification',id:1,round:1,remainingMs:1000});
+    else if(frame.type==='cancel') send({type:'failed',reason:'opencode_task_cancelled'});
+    else if(frame.type==='verification') process.exit(8);`));
+  const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000, cancelMs: 1000});
+  const controller = new AbortController(); let joined = false;
+  const pending = runtime.run('Task', {signal: controller.signal, verify: ({signal}) => new Promise(resolve => {
+    signal.addEventListener('abort', () => setTimeout(() => {
+      joined = true; resolve({status: 'unavailable', feedback: ''});
+    }, 15), {once: true});
+    queueMicrotask(() => controller.abort());
+  })});
+  await assert.rejects(pending, /opencode_runtime/); assert.equal(joined, true);
+  await runtime.close(); assert.equal(process.exitCode, 0);
+});

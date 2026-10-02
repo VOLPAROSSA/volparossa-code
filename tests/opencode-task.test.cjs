@@ -163,3 +163,77 @@ test('first native failure survives its request cancellation and failed session 
     });
   }
 });
+test('owner check failure continues the same session with exact feedback, deadline and one-shot permissions', async () => {
+  let turns = 0; const budgets = [], proposals = [];
+  const client = new Client(async (c, options) => {
+    turns++; budgets.push(options.timeoutMs);
+    tool(c); permission(c, {id: `per_turn${turns}`});
+    return answer();
+  });
+  const task = new OpenCodeTask(client, async proposal => { proposals.push(proposal); return true; });
+  const feedback = '{"exit_code":1,"stderr":"AssertionError: expected 7, observed 8"}';
+  const result = await task.run('Original task', {timeoutMs: 1000, maxVerificationRounds: 2,
+    verify: async ({round, remainingMs, signal}) => {
+      assert.ok(remainingMs <= budgets.at(-1)); assert.equal(signal.aborted, false);
+      assert.equal(client.calls.filter(call => call[0] === 'delete').length, 0);
+      if (round === 1) { await new Promise(resolve => setTimeout(resolve, 10)); return {status: 'failed', feedback}; }
+      return {status: 'passed', feedback: ''};
+    }});
+  assert.deepEqual(result.verification, {status: 'passed', checks: 2, continuations: 1});
+  assert.equal(result.taskVerified, false);
+  assert.equal(turns, 2); assert.equal(proposals.length, 2); assert.ok(budgets[1] < budgets[0]);
+  const prompts = client.calls.filter(call => call[0] === 'prompt');
+  assert.deepEqual(prompts.map(call => call[1]), ['ses_root', 'ses_root']);
+  assert.equal(prompts[0][2], 'Original task'); assert.ok(prompts[1][2].endsWith(feedback));
+  assert.deepEqual(client.calls.filter(call => call[0] === 'delete'), [['delete', 'ses_root']]);
+});
+test('unavailable, check errors and exhausted rounds never request another turn', async () => {
+  for (const mode of ['unavailable', 'error', 'failed']) {
+    const client = new Client();
+    const pending = new OpenCodeTask(client, async () => false).run('Task', {maxVerificationRounds: 1,
+      verify: async () => { if (mode === 'error') throw Error('check_failed_to_run');
+        return {status: mode, feedback: mode === 'failed' ? 'actual failure' : ''}; }});
+    if (mode === 'error') await assert.rejects(pending, /check_failed_to_run/);
+    else assert.equal((await pending).verification.status, mode);
+    assert.equal(client.calls.filter(call => call[0] === 'prompt').length, 1);
+    assert.equal(client.calls.filter(call => call[0] === 'delete').length, 1);
+  }
+  const client = new Client(async () => { const result = answer(); result.info.finish = 'length'; return result; });
+  await assert.rejects(new OpenCodeTask(client, async () => false).run('Task', {
+    verify: async () => assert.fail('incomplete native turn is not verification failure'),
+  }), /incomplete/);
+});
+test('original deadline and native connection loss abort the current check without continuation', async () => {
+  for (const mode of ['deadline', 'connection']) {
+    const client = new Client(); let checkAborted = false;
+    const task = new OpenCodeTask(client, async () => false);
+    await assert.rejects(task.run('Task', {timeoutMs: mode === 'deadline' ? 25 : 1000,
+      verify: ({signal}) => new Promise(resolve => {
+        signal.addEventListener('abort', () => { checkAborted = true; resolve({status: 'unavailable', feedback: ''}); }, {once: true});
+        if (mode === 'connection') queueMicrotask(() => client.emit('closed'));
+      })}), mode === 'deadline' ? /cancelled/ : /connection/);
+    assert.equal(checkAborted, true);
+    assert.equal(client.calls.filter(call => call[0] === 'prompt').length, 1);
+    assert.equal(client.calls.filter(call => call[0] === 'delete').length, 1);
+  }
+});
+test('queued native events during verification cannot be hidden by a passing receipt', async () => {
+  const client = new Client(); let release;
+  client.getSession = async id => {
+    await new Promise(resolve => { release = resolve; });
+    return {id, directory: client.workspace, parentID: 'ses_root'};
+  };
+  await assert.rejects(new OpenCodeTask(client, async () => false).run('Task', {
+    verify: async () => {
+      client.emit('event', {type: 'session.error', properties: {sessionID: 'ses_child'}});
+      setImmediate(() => release());
+      return {status: 'passed', feedback: ''};
+    },
+  }), /native_error/);
+  assert.equal(client.calls.filter(call => call[0] === 'delete').length, 1);
+  const late = new Client();
+  const result = await new OpenCodeTask(late, async () => false).run('Task', {
+    verify: async () => { tool(late, {status: 'completed'}); return {status: 'passed', feedback: ''}; },
+  });
+  assert.equal(result.commands, 1); assert.equal(result.taskVerified, false);
+});

@@ -2,7 +2,8 @@
 'use strict';
 const path = require('node:path');
 const {spawn} = require('node:child_process');
-const {readFrames, writeFrame, record, isFailureCode, validProviderDiagnostic, validTaskDiagnostic} = require('./opencode-bridge.cjs');
+const {readFrames, writeFrame, record, isFailureCode, validProviderDiagnostic, validTaskDiagnostic,
+  validVerification, validVerificationSummary} = require('./opencode-bridge.cjs');
 const FIELDS = ['version', 'opencode', 'opencodeSha256', 'buildReport', 'node', 'nodeSha256', 'socketPath'];
 const fail = (code = 'runtime_failed') => Object.assign(Error('opencode_runtime_unavailable_or_cleanup_unconfirmed'), {code});
 function configuration(value, workspace) {
@@ -22,6 +23,16 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
       cancelMs > 45000) throw fail();
   let terminal, run, used = false, closing, settled = false, readyResolve, readyReject, protocolBad = false;
   let diagnostics = null, taskDiagnostics = null;
+  const verifiers = new Set();
+  async function joinVerifier(work) {
+    if (!work) return;
+    let timer;
+    try {
+      await Promise.race([work, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(fail('opencode_task_verification_cleanup_unconfirmed')), cancelMs);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
   function complete(error, result) {
     if (!run || run.finished) return;
     run.finished = true; clearTimeout(run.cancelTimer);
@@ -34,7 +45,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
     };
     child.once('error', () => done(null, 'spawn_failed')); child.once('close', done);
   });
-  function bad() { protocolBad = true; readyReject(fail()); complete(fail()); child.stdin.end(); }
+  function bad() { protocolBad = true; run?.verificationController?.abort(); readyReject(fail()); complete(fail()); child.stdin.end(); }
   const unbind = readFrames(child.stdout, value => {
     if (protocolBad) return;
     if (!settled) {
@@ -51,7 +62,33 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
       if (!validTaskDiagnostic(value.task_diagnostics)) { bad(); return; }
       taskDiagnostics = value.task_diagnostics;
     }
-    if (value.type === 'approval') {
+    if (value.type === 'verification') {
+      if (Object.keys(value).length !== 4 || !run.verify || run.stopped || run.verificationWork ||
+          !Number.isSafeInteger(value.id) || value.id <= run.lastVerification ||
+          value.round !== run.lastVerificationRound + 1 || value.round > run.maxVerificationRounds ||
+          value.round > 1 && run.lastVerificationStatus !== 'failed' ||
+          !Number.isSafeInteger(value.remainingMs) || value.remainingMs < 1 || value.remainingMs > 2400000) { bad(); return; }
+      const active = run, controller = new AbortController();
+      active.lastVerification = value.id; active.lastVerificationRound = value.round;
+      active.lastVerificationStatus = null;
+      active.verificationController = controller;
+      const answer = receipt => {
+        if (!validVerification(receipt)) { bad(); return; }
+        if (active === run && !active.stopped && !active.finished && !closing && !protocolBad && !terminal) {
+          active.lastVerificationStatus = receipt.status;
+          try { writeFrame(child.stdin, {type: 'verification', id: value.id, ...receipt}); } catch { bad(); }
+        }
+      };
+      const work = Promise.resolve().then(() => active.verify({round: value.round,
+        remainingMs: value.remainingMs, signal: controller.signal})).then(answer,
+        () => answer({status: 'unavailable', feedback: ''})).finally(() => {
+        verifiers.delete(work);
+        if (active.verificationWork === work) {
+          active.verificationWork = null; active.verificationController = null;
+        }
+      });
+      active.verificationWork = work; verifiers.add(work);
+    } else if (value.type === 'approval') {
       if (!Number.isSafeInteger(value.id) || value.id <= 0 || value.id <= run.lastApproval ||
           !record(value.proposal) || !['bash', 'edit'].includes(value.proposal.permission)) { bad(); return; }
       run.lastApproval = value.id;
@@ -74,7 +111,11 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
       const result = value.result;
       if (!record(result) || result.nativeTurnCompleted !== true || result.taskVerified !== false ||
           typeof result.text !== 'string' || Buffer.byteLength(result.text) > 65536 ||
-          !Number.isSafeInteger(result.commands) || result.commands < run.lastCommands || result.commands > 1024 || run.stopped) { bad(); return; }
+          !Number.isSafeInteger(result.commands) || result.commands < run.lastCommands || result.commands > 1024 || run.stopped ||
+          (run.verify ? !validVerificationSummary(result.verification) || result.verification.checks !== run.lastVerificationRound
+              || result.verification.status !== run.lastVerificationStatus
+              || result.verification.continuations !== result.verification.checks - 1
+            : result.verification !== undefined)) { bad(); return; }
       complete(null, taskDiagnostics === null ? result : {...result,
         taskDiagnostics: JSON.parse(JSON.stringify(taskDiagnostics))});
     } else if (value.type === 'failed') {
@@ -97,6 +138,8 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
   child.stderr.on('error', bad);
   async function close() {
     closing ??= (async () => {
+      if (run) run.stopped = true;
+      run?.verificationController?.abort();
       child.stdin.end();
       let timer, hard, forced = false;
       try {
@@ -108,6 +151,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
         clearTimeout(timer); clearTimeout(hard); unbind();
         child.stdout.off('end', outputEnded); child.stdout.off('close', outputEnded);
       }
+      await Promise.all([...verifiers].map(joinVerifier));
       if (forced || protocolBad || terminal?.code !== 0 || terminal?.signal) throw fail();
     })();
     return closing;
@@ -121,26 +165,38 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
   const stop = () => {
     if (!run || run.stopped || run.finished) return;
     run.stopped = true;
+    run.verificationController?.abort();
     run.cancelTimer = setTimeout(bad, cancelMs);
     try { writeFrame(child.stdin, {type: 'cancel'}); } catch { bad(); }
   };
   return {close, stop, execution: 'private_local', confidentialRemoteAvailable: false,
     get diagnostics() { return diagnostics === null ? null : JSON.parse(JSON.stringify(diagnostics)); },
     get taskDiagnostics() { return taskDiagnostics === null ? null : JSON.parse(JSON.stringify(taskDiagnostics)); },
-    async run(prompt, {signal, approve = async () => false, onStatus = () => {}} = {}) {
+    async run(prompt, {signal, approve = async () => false, onStatus = () => {}, verify, maxVerificationRounds = 3} = {}) {
       if (used || terminal || protocolBad || typeof prompt !== 'string' || !prompt.trim() || prompt.includes('\0') ||
-          Buffer.byteLength(prompt) > 65536 || typeof approve !== 'function' || typeof onStatus !== 'function') throw fail();
+          Buffer.byteLength(prompt) > 65536 || typeof approve !== 'function' || typeof onStatus !== 'function' ||
+          verify !== undefined && typeof verify !== 'function' || !Number.isSafeInteger(maxVerificationRounds) ||
+          maxVerificationRounds < 1 || maxVerificationRounds > 16) throw fail();
       used = true;
       const done = new Promise((resolve, reject) => { run = {
-        resolve, reject, approve, onStatus, lastApproval: 0, lastCommands: 0, stopped: false, finished: false, cancelTimer: null,
+        resolve, reject, approve, onStatus, verify, maxVerificationRounds,
+        lastVerification: 0, lastVerificationRound: 0, lastVerificationStatus: null,
+        verificationWork: null, verificationController: null,
+        lastApproval: 0, lastCommands: 0, stopped: false, finished: false, cancelTimer: null,
       }; });
       signal?.addEventListener('abort', stop, {once: true});
       const deadline = setTimeout(() => { stop(); complete(fail()); }, 2430000);
       try {
         if (signal?.aborted) throw fail();
-        writeFrame(child.stdin, {type: 'run', prompt});
+        writeFrame(child.stdin, {type: 'run', prompt,
+          ...(verify ? {verification: {version: 1, maxRounds: maxVerificationRounds}} : {})});
         return await done;
-      } finally { clearTimeout(deadline); clearTimeout(run?.cancelTimer); signal?.removeEventListener('abort', stop); run = null; }
+      } finally {
+        const active = run;
+        clearTimeout(deadline); clearTimeout(active?.cancelTimer); signal?.removeEventListener('abort', stop);
+        if (active) { active.stopped = true; active.verificationController?.abort(); }
+        try { await joinVerifier(active?.verificationWork); } finally { run = null; }
+      }
     },
   };
 }

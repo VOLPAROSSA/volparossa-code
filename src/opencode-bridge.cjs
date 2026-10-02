@@ -10,7 +10,8 @@ const FAILURE_CODES = new Set([
   ...['scope', 'event_bound', 'event', 'connection', 'session_bound', 'permission_schema',
     'permission_replay', 'permission_bound', 'permission_unconfirmed', 'native_error',
     'tool_schema', 'tool_bound', 'abort_unconfirmed', 'cancelled', 'session_scope',
-    'incomplete', 'output_bound', 'result_scope', 'cleanup_unconfirmed'].map(code => `opencode_task_${code}`),
+    'incomplete', 'output_bound', 'result_scope', 'cleanup_unconfirmed',
+    'verification_scope', 'verification_cleanup_unconfirmed'].map(code => `opencode_task_${code}`),
   ...['unavailable', 'request', 'bound', 'transport', 'rejected', 'response', 'timeout',
     'cancelled', 'connection', 'version', 'event_timeout', 'event_schema', 'event_connection',
     'event_disposed', 'event_response', 'event_bound', 'event_invalid', 'event_closed',
@@ -21,6 +22,17 @@ const PROVIDER_ERRORS = Object.freeze(['execution_failed', 'invalid_model_output
   'socket_unavailable', 'socket_error', 'disconnected', 'invalid_response',
   'incompatible_capabilities', 'provider_failed', 'other']);
 const isFailureCode = code => FAILURE_CODES.has(code);
+const VERIFICATION_STATUSES = Object.freeze(['passed', 'failed', 'unavailable']);
+function validVerification(value) {
+  return record(value) && Object.keys(value).length === 2 && VERIFICATION_STATUSES.includes(value.status) &&
+    typeof value.feedback === 'string' && !value.feedback.includes('\0') && Buffer.byteLength(value.feedback) <= 8192 &&
+    (value.status !== 'failed' || value.feedback.trim().length > 0);
+}
+function validVerificationSummary(value) {
+  return record(value) && Object.keys(value).length === 3 && VERIFICATION_STATUSES.includes(value.status) &&
+    Number.isSafeInteger(value.checks) && value.checks >= 1 && value.checks <= 16 &&
+    Number.isSafeInteger(value.continuations) && value.continuations >= 0 && value.continuations < value.checks;
+}
 function taskFailure(error) {
   if (isFailureCode(error?.code)) return error.code;
   return isFailureCode(error?.message) ? error.message : 'task_or_runtime_failed';
@@ -91,5 +103,6 @@ function readFrames(stream, receive, fail) {
   return () => { stream.off('data', data); stream.off('error', bad); stream.off('end', end); pending = Buffer.alloc(0); };
 }
 module.exports = {readFrames, writeFrame, record, isFailureCode, taskFailure,
+  validVerification, validVerificationSummary,
   PROVIDER_ERRORS, emptyProviderDiagnostic, validProviderDiagnostic,
   TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic, validTaskDiagnostic};

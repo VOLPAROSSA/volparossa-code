@@ -12,7 +12,7 @@ const {OpenCodeTask} = require('../src/opencode-task.cjs');
 const {PrivateConversation} = require('../src/private-conversation.cjs');
 const {startChatCompletionsProvider} = require('../src/chat-completions-provider.cjs');
 const {runtimeSettings, MODEL} = require('../src/opencode-config.cjs');
-const {readFrames, writeFrame, taskFailure} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, taskFailure, record, validVerification} = require('../src/opencode-bridge.cjs');
 const COOPERATIVE_SOCKET = '/opt/core/cooperative.sock';
 const TERMINAL_TASK_ERRORS = new Set(['opencode_task_native_error', 'opencode_task_incomplete',
   'opencode_task_cancelled', 'opencode_cancelled']);
@@ -47,13 +47,15 @@ async function port() {
 async function runSession({input, output, events = process}, hooks = {}) {
   const spawnServer = hooks.spawn ?? spawn;
   let provider, child, exited, client, task, running, closing = false, bad = false, requested = false;
-  let seq = 0, pendingApproval, finish;
+  let seq = 0, verificationSeq = 0, pendingApproval, pendingVerification, finish;
   const expiredApprovals = new Set();
+  const expiredVerifications = new Set();
   const ended = new Promise(resolve => { finish = resolve; });
   const abort = new AbortController();
   const send = value => { try { writeFrame(output, value); } catch { broken(); } };
   const stop = () => {
-    closing = true; abort.abort(); pendingApproval?.resolve(false); pendingApproval = null; finish();
+    closing = true; abort.abort(); pendingApproval?.resolve(false); pendingApproval = null;
+    pendingVerification?.cancel(); finish();
   };
   const broken = () => { bad = true; stop(); };
   const approve = proposal => new Promise(resolve => {
@@ -71,6 +73,25 @@ async function runSession({input, output, events = process}, hooks = {}) {
   });
   const cancelApproval = () => { pendingApproval?.resolve(false); };
   abort.signal.addEventListener('abort', cancelApproval);
+  const verify = ({round, remainingMs, signal}) => new Promise(resolve => {
+    if (closing || abort.signal.aborted || signal.aborted || pendingVerification ||
+        !Number.isSafeInteger(remainingMs) || remainingMs < 1) {
+      resolve({status: 'unavailable', feedback: ''}); return;
+    }
+    const id = ++verificationSeq;
+    const finishCheck = value => {
+      clearTimeout(timer); signal.removeEventListener('abort', cancel);
+      if (pendingVerification?.id === id) pendingVerification = null;
+      resolve(value);
+    };
+    const cancel = () => {
+      expiredVerifications.add(id); finishCheck({status: 'unavailable', feedback: ''});
+    };
+    const timer = setTimeout(cancel, remainingMs);
+    pendingVerification = {id, resolve: finishCheck, cancel};
+    signal.addEventListener('abort', cancel, {once: true});
+    send({type: 'verification', id, round, remainingMs});
+  });
   const unbind = readFrames(input, value => {
     if (value.type === 'cancel' && Object.keys(value).length === 1) { abort.abort(); return; }
     if (value.type === 'approval' && Object.keys(value).length === 3 && typeof value.accepted === 'boolean' &&
@@ -79,11 +100,23 @@ async function runSession({input, output, events = process}, hooks = {}) {
         pendingApproval && value.id === pendingApproval.id) {
       pendingApproval.resolve(value.accepted && !abort.signal.aborted); pendingApproval = null; return;
     }
-    if (value.type !== 'run' || Object.keys(value).length !== 2 || requested || !task || closing ||
+    if (value.type === 'verification' && Object.keys(value).length === 4 &&
+        validVerification({status: value.status, feedback: value.feedback})) {
+      if (expiredVerifications.delete(value.id)) return;
+      if (pendingVerification && value.id === pendingVerification.id) {
+        pendingVerification.resolve({status: value.status, feedback: value.feedback}); return;
+      }
+    }
+    const verification = value.verification;
+    const selectionValid = verification === undefined || record(verification) && Object.keys(verification).length === 2 &&
+      verification.version === 1 && Number.isSafeInteger(verification.maxRounds) && verification.maxRounds >= 1 && verification.maxRounds <= 16;
+    if (value.type !== 'run' || Object.keys(value).length !== (verification === undefined ? 2 : 3) ||
+        !selectionValid || requested || !task || closing ||
         typeof value.prompt !== 'string' || !value.prompt.trim() || value.prompt.includes('\0') ||
         Buffer.byteLength(value.prompt) > 65536) { broken(); return; }
     requested = true;
-    running = task.run(value.prompt, {signal: abort.signal}).then(result => {
+    running = task.run(value.prompt, {signal: abort.signal,
+      ...(verification ? {verify, maxVerificationRounds: verification.maxRounds} : {})}).then(result => {
       if (!closing) send({type: 'result', result, diagnostics: provider?.diagnostics?.summary ?? null,
         task_diagnostics: task.diagnostics ?? null});
     }).catch(error => {
