@@ -80,6 +80,16 @@ test('only completed real-status exits can pass/fail; bounded actual feedback is
   }
 });
 
+test('ordinary multi-test error output remains a complete failed check', async t => {
+  const directory = workspace(t), stderr = 'ordinary test failure\n'.repeat(69) + 'FAILED\n';
+  assert.ok(Buffer.byteLength(stderr) > 1460 && Buffer.byteLength(stderr) < 4096);
+  child(t, process => { process.stderr.write(stderr); process.status(1); process.finish(1); });
+  const result = await invoke(createWorkspaceVerifier({workspace: directory,
+    executable: '/usr/bin/true', args: [], approve: () => true}));
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(JSON.parse(result.feedback), {exit_code: 1, stdout: '', stderr});
+});
+
 test('invalid configurations cannot create a host command path', t => {
   const directory = workspace(t), base = {workspace: directory, executable: '/usr/bin/true', args: [], approve: () => true};
   for (const changes of [{executable: '/tmp/check'}, {executable: 'true'}, {args: 'true'}, {args: ['x\0y']},
@@ -125,7 +135,7 @@ test('cancel, timeout and output overflow kill the process group and join before
     const controller = new AbortController();
     const fixture = child(t, process => {
       if (reason === 'cancelled') controller.abort();
-      else if (reason === 'output_limit') process.stdout.write(Buffer.alloc(1025, 65));
+      else if (reason === 'output_limit') process.stdout.write(Buffer.alloc(4097, 65));
     });
     const verifier = createWorkspaceVerifier({workspace: directory, executable: '/usr/bin/true', args: [],
       timeoutMs: reason === 'timeout' ? 10 : 1000, approve: () => true});
@@ -146,8 +156,16 @@ test('escaped feedback stays inside bridge bound and aggregate/status overflow s
   assert.equal(result.status, 'passed'); assert.ok(Buffer.byteLength(result.feedback) <= 8192);
   assert.equal(JSON.parse(result.feedback).stdout, '\0'.repeat(1024));
   t.mock.restoreAll();
+  child(t, process => { process.stdout.write(Buffer.alloc(4096, 65)); process.status(1); process.finish(1); });
+  const largest = await invoke(verifier());
+  assert.equal(largest.status, 'failed'); assert.ok(Buffer.byteLength(largest.feedback) <= 8192);
+  assert.equal(JSON.parse(largest.feedback).stdout, 'A'.repeat(4096));
+  t.mock.restoreAll();
+  child(t, process => { process.stdout.write(Buffer.alloc(2048, 0)); process.status(1); process.finish(1); });
+  assert.deepEqual(await invoke(verifier()), {status: 'unavailable', feedback: 'workspace_verifier_output_limit'});
+  t.mock.restoreAll();
   for (const behavior of [
-    process => { process.stdout.write(Buffer.alloc(512)); process.stderr.write(Buffer.alloc(513)); },
+    process => { process.stdout.write(Buffer.alloc(2048)); process.stderr.write(Buffer.alloc(2049)); },
     process => process.stdio[3].write(Buffer.alloc(4097)),
   ]) {
     const fixture = child(t, behavior);

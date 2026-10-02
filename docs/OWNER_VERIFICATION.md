@@ -76,8 +76,9 @@ Checks that need network access, writable project files, host credentials or
 dependencies outside these mounts are not supported by this first route. Setup
 failure, signal termination, timeout or excessive output are unavailable, never
 fabricated failures. A normal nonzero exit is a failed selected check. Combined
-stdout/stderr is limited to 1024 bytes; larger output is unavailable, not a
-truncated failure treated as actionable feedback. Feedback remains untrusted
+stdout/stderr is limited to 4096 bytes, and its complete JSON-escaped feedback
+must fit the separate 8192-byte bridge limit. Exceeding either bound is
+unavailable, not a truncated failure treated as actionable feedback. Feedback remains untrusted
 data, and contains no permission to broaden the original task.
 
 The result retains `taskVerified: false`. An optional separate

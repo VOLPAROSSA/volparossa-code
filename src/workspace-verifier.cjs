@@ -5,10 +5,11 @@ const path = require('node:path');
 const os = require('node:os');
 const childProcess = require('node:child_process');
 const {performance} = require('node:perf_hooks');
+const {validVerification} = require('./opencode-bridge.cjs');
 
 const BWRAP = '/usr/bin/bwrap';
-// Even worst-case JSON escaping fits the bridge's 8192-byte feedback bound.
-const OUTPUT_BYTES = 1024, STATUS_BYTES = 4096;
+// Accommodate normal test failures; also validate the escaped bridge receipt.
+const OUTPUT_BYTES = 4096, STATUS_BYTES = 4096;
 const ENV = Object.freeze({PATH: '/usr/bin:/bin', LANG: 'C.UTF-8'});
 const unavailable = reason => ({status: 'unavailable', feedback: `workspace_verifier_${reason}`});
 const validText = value => typeof value === 'string' && !value.includes('\0') && Buffer.byteLength(value) <= 4096;
@@ -164,8 +165,11 @@ function createWorkspaceVerifier({workspace, executable, args, timeoutMs = 15000
           if (childSignal || exit === null || code !== exit || /(^|\n)bwrap:/.test(stderr)) {
             resolve(unavailable('sandbox_or_signal')); return;
           }
-          resolve({status: exit === 0 ? 'passed' : 'failed',
-            feedback: JSON.stringify({exit_code: exit, stdout, stderr})});
+          const receipt = {status: exit === 0 ? 'passed' : 'failed',
+            feedback: JSON.stringify({exit_code: exit, stdout, stderr})};
+          // Escaping may expand otherwise bounded bytes past the wire limit.
+          // Never forward partial output as a completed failed check.
+          resolve(validVerification(receipt) ? receipt : unavailable('output_limit'));
         });
         child.stdio[4].end(noSocketsFilter());
       });
