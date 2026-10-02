@@ -93,13 +93,15 @@ class Contracts(unittest.TestCase):
             self.assertNotIn('sentinel', ''.join(p.read_text() for p in result.iterdir()))
 
     def test_guest_function_remains_identical_to_reviewed_baseline(self):
-        # Exact reviewed afdb284 guest AST, also usable in shallow source CI.
+        # Exact reviewed afdb284 guest source, also usable in shallow source CI.
+        # ast.dump() changes empty-field formatting across Python versions.
         current = (ROOT / 'scripts/smoke_opencode_inference.py').read_text()
         def guest(source):
-            return ast.dump(next(node for node in ast.parse(source).body
-                                 if isinstance(node, ast.FunctionDef) and node.name == 'guest'))
+            node = next(node for node in ast.parse(source).body
+                        if isinstance(node, ast.FunctionDef) and node.name == 'guest')
+            return ast.get_source_segment(source, node)
         self.assertEqual(hashlib.sha256(guest(current).encode()).hexdigest(),
-                         'fcaf7eae53c1aeb842e3d5a07fd9c13ca0b80026243dbb8d0752f7e38a5f43e4')
+                         '56927db8b86d47e18dd5c64f7e523559b37b3b3f6d0e3aa4d6539d297bdcad8a')
 
     def test_workflow_has_one_manual_trial_and_closed_export_only(self):
         source = (ROOT / '.github/workflows/opencode-inference.yml').read_text()
