@@ -358,6 +358,42 @@ def available_memory():
     return int(values['MemAvailable'].split()[0]) * 1024
 
 
+def closed_exception(error):
+    classes = {'OSError', 'PermissionError', 'FileNotFoundError', 'ValueError', 'KeyError', 'TypeError',
+               'InterruptedError', 'CalledProcessError', 'TimeoutExpired'}
+    reason = error.args[0] if error.args and type(error.args[0]) is str else None
+    reasons = {'host_available_memory_below_8GiB', 'another_vm_is_running', 'qemu_start', 'qemu_cgroup',
+               'qemu_resource_limits', 'qemu_exited', 'guest_boot_deadline', 'guest_bundle_hash',
+               'guest_trial_failed', 'user_unit_observation'}
+    return {'class': type(error).__name__ if type(error).__name__ in classes else 'other',
+            'reason': reason if reason in reasons else 'unclassified',
+            'subprocess_status': error.returncode if isinstance(error, subprocess.CalledProcessError) else None}
+
+
+def closed_qemu(state, stderr):
+    """Fixed metadata only; neither paths nor raw stderr are an exported diagnostic."""
+    classifications = [
+        ('missing_library', (b'error while loading shared libraries',)),
+        ('missing_firmware', (b'could not load PC BIOS', b'could not find ROM image', b'Could not open option rom')),
+        ('missing_module', (b'failed to initialize module', b'failed to load module')),
+        ('kvm_unavailable', (b'Could not access KVM', b'failed to initialize kvm', b'KVM is not supported')),
+        ('port_in_use', (b'Could not set up host forwarding rule', b'Address already in use')),
+        ('memory_allocation', (b'Cannot allocate memory', b'cannot set up guest memory')),
+        ('disk_open', (b'Could not open backing file', b'Could not open ', b'Failed to get "write" lock')),
+        ('sandbox', (b'failed to install seccomp', b'failed to create seccomp', b'Seccomp')),
+        ('missing_file', (b'No such file or directory',)),
+        ('permission_denied', (b'Permission denied',)),
+    ]
+    category = next((name for name, needles in classifications if any(word in stderr for word in needles)),
+                    'empty' if not stderr else 'other')
+    code, status = state.get('ExecMainCode', ''), state.get('ExecMainStatus', '')
+    number = int(status) if re.fullmatch('[0-9]{1,3}', status) else None
+    return {'active': state.get('ActiveState') if state.get('ActiveState') in ('active', 'inactive', 'failed', 'activating', 'deactivating') else 'unknown',
+            'result': state.get('Result') if state.get('Result') in ('success', 'exit-code', 'signal', 'core-dump', 'oom-kill', 'timeout', 'resources') else 'unknown',
+            'exit_code': number if code == '1' else None, 'signal': number if code in ('2', '3') else None,
+            'stderr_class': category, 'stderr_bytes_observed': len(stderr), 'stderr_truncated': len(stderr) > 65536}
+
+
 def validate_bundle(path):
     canonical(path)
     require(path.stat().st_size < 512 * 1024**2, 'bundle_bound')
@@ -443,7 +479,8 @@ def execute(args):
         run(['scp', *ssh_options, '-P', '22223', source, destination], timeout=600)
 
     def unit_state():
-        result = subprocess.run([*control, 'show', name, '--property=ActiveState,MainPID,ControlGroup,Result'],
+        result = subprocess.run([*control, 'show', name,
+                                 '--property=ActiveState,MainPID,ControlGroup,Result,ExecMainCode,ExecMainStatus'],
                                 text=True, capture_output=True, timeout=15)
         require(result.returncode in (0, 1), 'user_unit_observation')
         return dict(row.split('=', 1) for row in result.stdout.splitlines() if '=' in row)
@@ -483,6 +520,7 @@ def execute(args):
             '-serial', 'file:' + str(scratch / 'console.log'), '-no-reboot',
             '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
         run(['systemd-run', '--user', '--quiet', '--unit=' + name, '--property=Type=exec',
+            '--property=RemainAfterExit=yes',
             '--property=MemoryMax=' + str(7 * GIB), '--property=MemorySwapMax=0',
             '--property=RuntimeMaxSec=7200', '--property=TimeoutStopSec=15', '--property=KillMode=control-group',
             '--property=StandardOutput=null', '--property=StandardError=append:' + str(scratch / 'qemu.stderr'), *qemu], env=tool_env)
@@ -525,12 +563,19 @@ def execute(args):
         receipt['actual_model_execution_proven'] = bool(result.get('passed') and result.get('actual_model_provisioned'))
         require(executed.returncode == 0 and result.get('passed') is True, 'guest_trial_failed')
         receipt['phase'], status = 'complete', 0
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         receipt['failure'] = 'stage_failed'
+        receipt['exception'] = closed_exception(error)
     finally:
         for sig, previous in old_signals.items():
             signal.signal(sig, previous)
         if launched:
+            try:
+                with (scratch / 'qemu.stderr').open('rb') as stream:
+                    raw = stream.read(65537)
+                receipt['qemu_before_cleanup'] = closed_qemu(unit_state(), raw)
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+                receipt['qemu_diagnostic_unavailable'] = True
             try:
                 ssh('sudo', '-n', 'systemctl', 'poweroff', timeout=15, check=False)
             except (OSError, subprocess.SubprocessError):
@@ -549,6 +594,8 @@ def execute(args):
         receipt['passed'] = status == 0 and receipt['qemu_joined'] and receipt['scratch_removed'] \
             and receipt['host_observed_routes_dns_unchanged'] is True
         record(args.output / 'vm-result.json', receipt)
+        if launched and receipt['qemu_joined']:
+            subprocess.run([*control, 'reset-failed', name], capture_output=True, timeout=15, check=False)
         print(json.dumps({'phase': receipt['phase'], 'passed': receipt['passed'], 'failure': receipt['failure'],
                           'qemu_joined': receipt['qemu_joined'], 'scratch_removed': receipt['scratch_removed']}), flush=True)
     return 0 if receipt['passed'] else 1

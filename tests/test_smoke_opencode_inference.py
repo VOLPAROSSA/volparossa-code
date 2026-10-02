@@ -50,14 +50,30 @@ class Contracts(unittest.TestCase):
                     TRIAL.validate_bundle(self.archive(root, **options))
 
     def test_memory_gate_fails_before_output_vm_or_install_actions(self):
-        output = TRIAL.ROOT / 'build/never-created-opencode-memory-contract'
-        args = SimpleNamespace(yes=True, output=output)
-        with patch.object(TRIAL, 'available_memory', return_value=8 * TRIAL.GIB - 1), \
-                patch.object(TRIAL, 'run') as process:
-            with self.assertRaisesRegex(ValueError, 'host_available_memory_below_8GiB'):
-                TRIAL.execute(args)
-            process.assert_not_called()
-        self.assertFalse(output.exists())
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'build').mkdir(mode=0o700)
+            output = root / 'build/never-created-opencode-memory-contract'
+            args = SimpleNamespace(yes=True, output=output)
+            with patch.object(TRIAL, 'ROOT', root), \
+                    patch.object(TRIAL, 'available_memory', return_value=8 * TRIAL.GIB - 1), \
+                    patch.object(TRIAL, 'run') as process:
+                with self.assertRaisesRegex(ValueError, 'host_available_memory_below_8GiB'):
+                    TRIAL.execute(args)
+                process.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_qemu_failure_is_closed_but_preserves_real_exit_and_reason(self):
+        state = dict(ActiveState='failed', Result='exit-code', ExecMainCode='1', ExecMainStatus='1')
+        private = b'Could not open /private/canary.img: Permission denied\n'
+        observed = TRIAL.closed_qemu(state, private)
+        self.assertEqual(observed['exit_code'], 1)
+        self.assertIsNone(observed['signal'])
+        self.assertEqual(observed['stderr_class'], 'disk_open')
+        self.assertNotIn('canary', json.dumps(observed))
+        self.assertEqual(TRIAL.closed_qemu(dict(state, ExecMainCode='2', ExecMainStatus='9'), b'')['signal'], 9)
+        self.assertEqual(TRIAL.closed_exception(ValueError('qemu_exited'))['reason'], 'qemu_exited')
+        self.assertEqual(TRIAL.closed_exception(ValueError('/private/canary'))['reason'], 'unclassified')
 
 
 if __name__ == '__main__':
