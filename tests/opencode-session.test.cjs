@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const {PassThrough} = require('node:stream');
 const {EventEmitter} = require('node:events');
 const {runSession} = require('../scripts/opencode_session.cjs');
-const {readFrames, writeFrame, emptyProviderDiagnostic} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, emptyProviderDiagnostic, emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
 
 function fixture(Task, receive, options = {}) {
   const input = new PassThrough(), output = new PassThrough(), events = new EventEmitter(), observed = [];
@@ -129,5 +129,21 @@ test('task cleanup uncertainty, protocol failures and provider cleanup mismatche
     assert.ok(!f.observed.includes('result'));
     assert.ok(!JSON.stringify(failed).includes('UNKNOWN_PRIVATE_REASON'));
     assert(f.observed.includes('provider-close')); assert(f.observed.includes('SIGTERM'));
+  }
+});
+test('owner returns observed native lifecycle on both successful and failed turns', async () => {
+  for (const failed of [false, true]) {
+    const diagnostic = emptyTaskDiagnostic(); diagnostic.observed_calls = 1;
+    diagnostic.tools.read[failed ? 'error' : 'completed'] = 1;
+    class Task {
+      get diagnostics() { return diagnostic; }
+      async run() { if (failed) throw Error('opencode_task_native_error'); return result; }
+    }
+    const f = fixture(Task, (value, input) => {
+      assert.equal(value.type, failed ? 'failed' : 'result');
+      assert.deepEqual(value.task_diagnostics, diagnostic);
+      input.end();
+    });
+    assert.equal(await f.done, 0);
   }
 });

@@ -84,7 +84,8 @@ async function runSession({input, output, events = process}, hooks = {}) {
         Buffer.byteLength(value.prompt) > 65536) { broken(); return; }
     requested = true;
     running = task.run(value.prompt, {signal: abort.signal}).then(result => {
-      if (!closing) send({type: 'result', result, diagnostics: provider?.diagnostics?.summary ?? null});
+      if (!closing) send({type: 'result', result, diagnostics: provider?.diagnostics?.summary ?? null,
+        task_diagnostics: task.diagnostics ?? null});
     }).catch(error => {
       const reason = taskFailure(error);
       // A refused/incomplete/cancelled task is still a failed task, not proof of
@@ -94,7 +95,7 @@ async function runSession({input, output, events = process}, hooks = {}) {
       if (!TERMINAL_TASK_ERRORS.has(reason) || error?.taskCleanupFailure != null) bad = true;
       if (!closing) send({type: 'failed', reason,
         task_cleanup_failure: error?.taskCleanupFailure === 'session_cleanup_unconfirmed' ? 'session_cleanup_unconfirmed' : null,
-        diagnostics: provider?.diagnostics?.summary ?? null});
+        diagnostics: provider?.diagnostics?.summary ?? null, task_diagnostics: task.diagnostics ?? null});
     });
   }, broken);
   input.once('end', stop); input.once('close', stop); output.once('error', broken);

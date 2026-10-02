@@ -2,7 +2,7 @@
 'use strict';
 const path = require('node:path');
 const {validId, bounded} = require('./opencode-client.cjs');
-const {taskFailure} = require('./opencode-bridge.cjs');
+const {taskFailure, TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic} = require('./opencode-bridge.cjs');
 const MODEL = 'qwen3-0.6b-v1';
 const fail = code => Error(`opencode_task_${code}`);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -19,6 +19,7 @@ class OpenCodeTask {
     this.session = null; this.started = false; this.active = false; this.stopped = false; this.stopPromise = null;
     this.known = new Map(); this.pendingPermissions = new Set(); this.answeredPermissions = new Set();
     this.tools = new Map(); this.toolBytes = 0; this.completed = new Set(); this.commands = 0; this.events = 0;
+    this.taskDiagnostic = emptyTaskDiagnostic(); this.observedTools = new Map();
     this.queue = Promise.resolve(); this.error = null; this.cancelApproval = () => {};
     this.promptAbort = new AbortController();
     this.onEvent = event => {
@@ -48,12 +49,30 @@ class OpenCodeTask {
     return resolved === this.client.workspace || resolved.startsWith(this.client.workspace + '/');
   }
   toolKey(session, message, call) { return `${session}/${message}/${call}`; }
+  get diagnostics() { return JSON.parse(JSON.stringify(this.taskDiagnostic)); }
+  observeTool(key, part) {
+    // Only closed tool kinds and observed lifecycle states leave the owner.
+    // Read/search tools normally run without an approval or bash event. Count
+    // each native call/state once, not its output updates; never retain payloads.
+    const kind = TASK_TOOLS.includes(part.tool) ? part.tool : 'other';
+    const state = TOOL_STATES.indexOf(part.state.status);
+    if (state < 0) { this.taskDiagnostic.truncated = true; return; }
+    let seen = this.observedTools.get(key);
+    if (!seen) {
+      if (this.observedTools.size >= 1024) { this.taskDiagnostic.truncated = true; return; }
+      seen = new Set(); this.observedTools.set(key, seen); this.taskDiagnostic.observed_calls++;
+    }
+    const transition = `${kind}/${state}`;
+    if (seen.has(transition)) return;
+    seen.add(transition); this.taskDiagnostic.tools[kind][part.state.status]++;
+  }
   async permission(request) {
     if (!record(request) || !validId(request.id) || !request.id.startsWith('per')) throw fail('permission_schema');
     if (this.pendingPermissions.has(request.id) || this.answeredPermissions.has(request.id)) throw fail('permission_replay');
     if (this.answeredPermissions.size >= 1024) throw fail('permission_bound');
     this.pendingPermissions.add(request.id);
-    let accepted = false;
+    this.taskDiagnostic.permissions.requested++;
+    let accepted = false, confirmed = false;
     try {
       if (!this.stopped && await this.owned(request.sessionID) && ['bash', 'edit'].includes(request.permission) &&
           Array.isArray(request.patterns) && request.patterns.length > 0 && request.patterns.length <= 32 &&
@@ -71,6 +90,7 @@ class OpenCodeTask {
               request.patterns.every(value => this.within(value) && !/[?*\[\]{}]/.test(value)) &&
               (request.metadata.filepath === undefined || this.within(request.metadata.filepath));
           if (eligible && !this.stopped) {
+            this.taskDiagnostic.permissions.forwarded++;
             let timer;
             const decision = Promise.resolve().then(() => this.approval({
               permission: request.permission, patterns: [...request.patterns], metadata: request.metadata,
@@ -86,10 +106,15 @@ class OpenCodeTask {
         }
       }
       // Late UI acceptance cannot grant after interruption. No persistent grant.
-      const result = await this.client.replyPermission(request.id, accepted === true && !this.stopped);
+      const granted = accepted === true && !this.stopped;
+      const result = await this.client.replyPermission(request.id, granted);
       if (result !== true) throw fail('permission_unconfirmed');
+      confirmed = true; this.taskDiagnostic.permissions[granted ? 'accepted' : 'rejected']++;
       this.answeredPermissions.add(request.id);
-    } finally { this.pendingPermissions.delete(request.id); }
+    } finally {
+      if (!confirmed) this.taskDiagnostic.permissions.unconfirmed++;
+      this.pendingPermissions.delete(request.id);
+    }
   }
   async event(event) {
     if (this.stopped || !record(event?.properties)) return;
@@ -103,6 +128,7 @@ class OpenCodeTask {
         !validId(part.messageID) || !validId(part.callID) || !record(part.state)) throw fail('tool_schema');
     if (!(await this.owned(part.sessionID))) return;
     const key = this.toolKey(part.sessionID, part.messageID, part.callID);
+    this.observeTool(key, part);
     const previous = this.tools.get(key);
     if (previous) this.toolBytes -= Buffer.byteLength(JSON.stringify(previous));
     this.tools.delete(key);
@@ -179,6 +205,7 @@ class OpenCodeTask {
       this.active = false; this.cancelApproval(); await this.queue;
       this.client.off('event', this.onEvent); this.client.off('closed', this.onClose);
       this.tools.clear(); this.toolBytes = 0; this.completed.clear();
+      this.observedTools.clear();
       if (this.session) {
         let removed = false;
         try { removed = await this.client.deleteSession(this.session) === true; } catch {}

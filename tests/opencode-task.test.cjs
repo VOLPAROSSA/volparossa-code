@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {EventEmitter} = require('node:events');
 const {OpenCodeTask, MODEL} = require('../src/opencode-task.cjs');
+const {emptyTaskDiagnostic, validTaskDiagnostic} = require('../src/opencode-bridge.cjs');
 function answer(session = 'ses_root') {
   return {info: {id: 'msg_result', sessionID: session, role: 'assistant', providerID: 'volparossa', modelID: MODEL,
     finish: 'stop', time: {completed: 1}, path: {cwd: '/workspace'}}, parts: [
@@ -38,7 +39,59 @@ test('verified terminal native result, explicit one-shot command approval, and s
   assert.equal(proposals[0].command, 'node --test');
   assert.deepEqual(client.calls.filter(c => c[0] === 'permission'), [['permission', 'per_fixture', true]]);
   assert.equal(result.commands, 1); assert.equal(result.nativeTurnCompleted, true); assert.equal(result.taskVerified, false);
+  assert.deepEqual(task.diagnostics.permissions, {requested: 1, forwarded: 1, accepted: 1, rejected: 0, unconfirmed: 0});
   assert.deepEqual(client.calls.at(-1), ['delete', 'ses_root']);
+});
+test('read without approval and a failed tool are distinguishable without exporting private details', async () => {
+  for (const status of ['completed', 'error']) {
+    const client = new Client(async c => {
+      tool(c, {kind: 'read', input: {filePath: '/workspace/PRIVATE_CANARY'}});
+      tool(c, {kind: 'read', status, input: {filePath: '/workspace/PRIVATE_CANARY'}});
+      tool(c, {kind: 'read', status}); // Repeated metadata updates are not extra executions.
+      tool(c, {session: 'ses_foreign', kind: 'bash', status: 'completed'});
+      return answer();
+    });
+    let approvals = 0;
+    const task = new OpenCodeTask(client, async () => { approvals++; return true; });
+    const result = await task.run('Private synthetic input');
+    assert.equal(result.commands, 0); assert.equal(approvals, 0);
+    assert.equal(result.taskVerified, false); // A completed read is not successful coding.
+    assert.equal(task.diagnostics.observed_calls, 1);
+    assert.equal(task.diagnostics.tools.read.running, 1);
+    assert.equal(task.diagnostics.tools.read[status], 1);
+    assert.equal(task.diagnostics.tools.bash.completed, 0);
+    assert.deepEqual(task.diagnostics.permissions, emptyTaskDiagnostic().permissions);
+    assert.equal(validTaskDiagnostic(task.diagnostics), true);
+    assert.ok(!JSON.stringify(task.diagnostics).includes('PRIVATE_CANARY'));
+    task.diagnostics.tools.read.running = 100;
+    assert.equal(task.diagnostics.tools.read.running, 1);
+  }
+});
+test('unknown tool names are closed other counts and diagnostic limits do not grant or fail work', async () => {
+  const client = new Client(async c => {
+    tool(c, {kind: 'PRIVATE_CANARY', status: 'error'});
+    return answer();
+  });
+  const task = new OpenCodeTask(client, async () => assert.fail('no approval'));
+  await task.run('Task');
+  assert.equal(task.diagnostics.tools.other.error, 1);
+  assert.ok(!JSON.stringify(task.diagnostics).includes('PRIVATE_CANARY'));
+  for (let id = 0; id < 1025; id++) task.observeTool(`synthetic_${id}`,
+    {tool: 'read', state: {status: 'pending'}});
+  assert.equal(task.diagnostics.truncated, true);
+  assert.equal(task.observedTools.size, 1024);
+  assert.equal(task.error, null);
+});
+test('rejected and unconfirmed approvals remain distinct through cleanup', async () => {
+  for (const confirmed of [true, false]) {
+    const client = new Client(async c => { tool(c); permission(c); return answer(); });
+    client.replyPermission = async () => confirmed;
+    const task = new OpenCodeTask(client, async () => false);
+    if (confirmed) await task.run('Task');
+    else await assert.rejects(task.run('Task'), /permission_unconfirmed/);
+    assert.deepEqual(task.diagnostics.permissions,
+      {requested: 1, forwarded: 1, accepted: 0, rejected: Number(confirmed), unconfirmed: Number(!confirmed)});
+  }
 });
 test('descendant session may request approval but unrelated sessions and network permissions cannot', async () => {
   const client = new Client(async c => {

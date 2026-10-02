@@ -26,6 +26,7 @@ function retainFailure(evidence, error, aborted = false) {
 }
 async function closeRuntime(evidence, runtime) {
   evidence.provider_diagnostics = runtime.diagnostics ?? null;
+  evidence.native_tool_diagnostics = runtime.taskDiagnostics ?? null;
   try { await runtime.close(); evidence.runtime_cleanup_confirmed = true; }
   catch { evidence.cleanup_failure = 'runtime_cleanup_unconfirmed'; }
 }
@@ -133,7 +134,7 @@ async function main(args = process.argv.slice(2)) {
   const staged = path.join(path.dirname(buildReport), 'opencode');
   if (await fs.stat(staged).then(s => s.isFile(), () => false)) config.opencode = staged;
   const evidence = {version: 1, kind: 'opencode-actual-core-task', passed: false, phase: 'prepare', failure: null,
-    cleanup_failure: null, task_cleanup_failure: null, provider_diagnostics: null,
+    cleanup_failure: null, task_cleanup_failure: null, provider_diagnostics: null, native_tool_diagnostics: null,
     actual_native_turn_completed: false, synthetic_core_used: false, model_answers_injected: false,
     private_peer_execution_proven: false, general_coding_quality_proven: false,
     core_model_provenance_owned_by_parent: true, vm_cleanup_owned_by_parent: true,

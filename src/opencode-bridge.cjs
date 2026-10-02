@@ -31,6 +31,24 @@ function emptyProviderDiagnostic() {
     incomplete_reasons: {token_limit: 0, wire_truncated: 0, invalid_output: 0},
     request_errors: Object.fromEntries(PROVIDER_ERRORS.map(code => [code, 0])), truncated: false};
 }
+const TASK_TOOLS = Object.freeze(['read', 'glob', 'grep', 'list', 'bash', 'edit', 'write',
+  'apply_patch', 'multiedit', 'task', 'volparossa_delegate_public', 'invalid', 'other']);
+const TOOL_STATES = Object.freeze(['pending', 'running', 'completed', 'error']);
+function emptyTaskDiagnostic() {
+  return {version: 1, observed_calls: 0,
+    tools: Object.fromEntries(TASK_TOOLS.map(tool => [tool,
+      Object.fromEntries(TOOL_STATES.map(state => [state, 0]))])),
+    permissions: {requested: 0, forwarded: 0, accepted: 0, rejected: 0, unconfirmed: 0},
+    truncated: false};
+}
+function validTaskDiagnostic(value) {
+  const matches = (actual, expected) => record(actual) && Object.keys(actual).length === Object.keys(expected).length
+    && Object.entries(expected).every(([key, item]) => Object.hasOwn(actual, key) && (record(item)
+      ? matches(actual[key], item) : typeof item === 'number'
+        ? Number.isSafeInteger(actual[key]) && actual[key] >= 0 && actual[key] <= 65535
+        : typeof actual[key] === typeof item));
+  return value === null || matches(value, emptyTaskDiagnostic()) && value.version === 1;
+}
 function validProviderDiagnostic(value) {
   const template = emptyProviderDiagnostic();
   const matches = (actual, expected) => record(actual) && Object.keys(actual).length === Object.keys(expected).length
@@ -73,4 +91,5 @@ function readFrames(stream, receive, fail) {
   return () => { stream.off('data', data); stream.off('error', bad); stream.off('end', end); pending = Buffer.alloc(0); };
 }
 module.exports = {readFrames, writeFrame, record, isFailureCode, taskFailure,
-  PROVIDER_ERRORS, emptyProviderDiagnostic, validProviderDiagnostic};
+  PROVIDER_ERRORS, emptyProviderDiagnostic, validProviderDiagnostic,
+  TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic, validTaskDiagnostic};

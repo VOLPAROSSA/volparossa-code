@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const {PassThrough, Writable} = require('node:stream');
 const {configuration, ownedOpenCode} = require('../src/opencode-runtime.cjs');
-const {readFrames, writeFrame, emptyProviderDiagnostic} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, emptyProviderDiagnostic, emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
 const READY = {type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false};
 const RESULT = {text: 'Synthetic answer.', commands: 1, nativeTurnCompleted: true, taskVerified: false};
 function child(t, program) {
@@ -165,6 +165,36 @@ test('diagnostic frames reject private extra fields, unknown reasons and unbound
     const process = child(t, script(`if(frame.type==='run') send(${JSON.stringify(frame)});`));
     const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
     await assert.rejects(runtime.run('Task'), error => error.code === 'runtime_failed' && !error.message.includes('CANARY'));
+    await assert.rejects(runtime.close(), /cleanup_unconfirmed/);
+  }
+});
+test('closed native lifecycle facts cross the owner bridge in results and failures', async t => {
+  const diagnostic = emptyTaskDiagnostic();
+  diagnostic.observed_calls = 1; diagnostic.tools.read.running = 1; diagnostic.tools.read.error = 1;
+  for (const type of ['result', 'failed']) {
+    const frame = type === 'result' ? {type, result: RESULT, task_diagnostics: diagnostic}
+      : {type, reason: 'opencode_task_native_error', task_diagnostics: diagnostic};
+    const process = child(t, script(`if(frame.type==='run') send(${JSON.stringify(frame)});`));
+    const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+    if (type === 'result') assert.deepEqual((await runtime.run('Task')).taskDiagnostics, diagnostic);
+    else await assert.rejects(runtime.run('Task'), error => error.code === 'opencode_task_native_error');
+    assert.deepEqual(runtime.taskDiagnostics, diagnostic);
+    runtime.taskDiagnostics.tools.read.error = 20;
+    assert.equal(runtime.taskDiagnostics.tools.read.error, 1);
+    await runtime.close();
+  }
+});
+test('native lifecycle bridge rejects raw text, arbitrary tools and malformed counters', async t => {
+  const diagnostic = emptyTaskDiagnostic();
+  for (const changed of [{...diagnostic, text: 'PRIVATE_CANARY'},
+    {...diagnostic, version: 2}, {...diagnostic, observed_calls: -1},
+    {...diagnostic, tools: {...diagnostic.tools, PRIVATE_CANARY: {completed: 1}}},
+    {...diagnostic, permissions: {...diagnostic.permissions, accepted: 65536}}]) {
+    const frame = {type: 'result', result: RESULT, task_diagnostics: changed};
+    const process = child(t, script(`if(frame.type==='run') send(${JSON.stringify(frame)});`));
+    const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+    await assert.rejects(runtime.run('Task'), error => error.code === 'runtime_failed');
+    assert.equal(runtime.taskDiagnostics, null);
     await assert.rejects(runtime.close(), /cleanup_unconfirmed/);
   }
 });

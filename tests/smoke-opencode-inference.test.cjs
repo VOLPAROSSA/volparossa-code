@@ -4,6 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {commandKind, approvalKind, ORIGINAL, TEST, retainFailure, closeRuntime} = require('../scripts/smoke_opencode_inference.cjs');
+const {emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
 test('ordinary scoped read and Python unittest spellings are accepted without a single expected command', () => {
   for (const cmd of ['cat fixture.py', 'cat /workspace/test_fixture.py', "sed -n '1,120p' fixture.py", 'ls -la', 'pwd']) {
     assert.equal(commandKind(cmd), 'read', cmd);
@@ -50,4 +51,16 @@ test('primary closed task failure survives a separate failed cleanup without dis
   assert.equal(unknown.failure, 'task_or_runtime_failed');
   assert.equal(unknown.cleanup_failure, null);
   assert.equal(unknown.runtime_cleanup_confirmed, true);
+});
+test('original trial receipt retains closed native tool facts without treating them as task success', async () => {
+  const diagnostic = emptyTaskDiagnostic(); diagnostic.observed_calls = 1; diagnostic.tools.read.completed = 1;
+  const evidence = {passed: false, failure: 'task_or_runtime_failed', cleanup_failure: null};
+  await closeRuntime(evidence, {taskDiagnostics: diagnostic, async close() {}});
+  assert.deepEqual(evidence.native_tool_diagnostics, diagnostic);
+  assert.equal(evidence.runtime_cleanup_confirmed, true);
+  assert.equal(evidence.passed, false);
+  assert.equal(evidence.failure, 'task_or_runtime_failed');
+  const older = {};
+  await closeRuntime(older, {async close() {}});
+  assert.equal(older.native_tool_diagnostics, null); // Absent older counters are not zero observations.
 });
