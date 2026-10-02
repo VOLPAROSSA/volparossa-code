@@ -69,12 +69,12 @@ test('manifest declares trust and machine scope without telemetry, accounts or a
   assert.equal(value.dependencies, undefined); assert.equal(value.activationEvents, undefined);
 });
 
-function codingFixture() {
+function codingFixture({delegation} = {}) {
   const events = [];
   const native = {
     Runtime: {async start(config, options) {
       events.push(['launch', config, options]);
-      return {async close() { events.push(['cleanup']); },
+      return {publicDelegation: delegation, async close() { events.push(['cleanup']); },
         async run(prompt, {approve, onStatus}) {
           events.push(['task', prompt]);
           assert.equal(await approve({permission: 'bash', command: 'node --test', directory: '.'}), true);
@@ -111,6 +111,15 @@ test('explicit coding command launches only user-selected inputs, asks one-shot 
   assert.equal(f.documents[0].language, 'plaintext');
   assert.match(f.documents[0].content, /not independently verified/);
   assert.match(f.documents[0].content, /Generated reply/); assert.deepEqual(f.errors, []);
+});
+
+test('terminal public responses are not presented as complete peer answers', async () => {
+  const f = codingFixture({delegation: {submitted: 1, completed: 1, cleanup_confirmed: true}});
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.errors, []);
+  assert.match(f.documents[0].content, /terminal responses: 1/);
+  assert.match(f.documents[0].content, /Terminal responses may contain incomplete answers/);
+  assert.doesNotMatch(f.documents[0].content, /; completed: 1/);
 });
 
 test('cancelled consent, remote, untrusted and missing folders never launch a native runtime', async () => {

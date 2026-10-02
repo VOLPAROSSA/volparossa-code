@@ -190,7 +190,8 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
     await show('VOLPAROSSA — OpenCode turn finished\n' +
       'Task correctness and tests are not independently verified by this frontend. Review your changes and tool results.\n' +
       `Native commands observed: ${result.commands}\nLocal private conversation executor.\n` +
-      (delegation ? `Enrolled public tasks submitted: ${delegation.submitted}; completed: ${delegation.completed}; cleanup confirmed: ${delegation.cleanup_confirmed}.\n` : 'No public-peer execution.\n') +
+      (delegation ? `Enrolled public tasks submitted: ${delegation.submitted}; terminal responses: ${delegation.completed}; cleanup confirmed: ${delegation.cleanup_confirmed}.\n` +
+        'Terminal responses may contain incomplete answers; inspect the original peer result.\n' : 'No public-peer execution.\n') +
       'Protected private peer execution is not available in this candidate.\n\n' + result.text);
   });
   context.subscriptions.push(vscode.commands.registerCommand('volparossaCode.codingTask', codingTask(false)));
