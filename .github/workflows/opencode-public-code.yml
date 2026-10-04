@@ -1,0 +1,116 @@
+name: Explicit public peer code proposal
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_code_sha:
+        description: Exact reviewed workflow Code commit (the immutable public driver is pinned separately)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: explicit-volparossa-public-code-proposal
+  cancel-in-progress: false
+
+jobs:
+  public-code:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      EXPECTED_CODE_SHA: ${{ inputs.expected_code_sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve the closed core fixture pin
+        id: source
+        run: python3 -B scripts/public_code_ci.py select >>"$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: VOLPAROSSA/volparossa
+          ref: ${{ steps.source.outputs.core_revision }}
+          path: build/public-code-core
+          persist-credentials: false
+      - name: Bind clean workflow, immutable driver and core sources
+        run: python3 -B scripts/public_code_ci.py source --expected-code "$EXPECTED_CODE_SHA"
+      - name: Install official tools on this disposable GitHub host only
+        run: |
+          set -euo pipefail
+          python3 -B scripts/public_code_ci.py guard
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            build-essential cmake git libevent-dev pkg-config qemu-system-x86 qemu-utils \
+            cloud-image-utils openssh-client curl jq util-linux
+          test -c /dev/kvm
+          test "$(stat -Lc '%u' /dev/kvm)" = 0
+          kvm_gid=$(stat -Lc '%g' /dev/kvm)
+          case "$kvm_gid" in ''|0|0*|*[!0-9]*) exit 1 ;; esac
+          test "$(getent group "$kvm_gid" | awk -F: -v gid="$kvm_gid" '$1 == "kvm" && $3 == gid {print $1 ":" $3}')" = "kvm:$kvm_gid"
+          printf 'VOLPAROSSA_KVM_GID=%s\n' "$kvm_gid" >>"$GITHUB_ENV"
+      - name: Build the exact core-owned mqvpn and xquic runtime
+        working-directory: build/public-code-core
+        run: |
+          set -euo pipefail
+          native/volparossa-mpquic/scripts/fetch-upstream.sh --yes
+          VMP_BUILD_JOBS=2 VMP_RUN_TESTS=no native/volparossa-mpquic/scripts/build-upstream.sh
+          test "$(native/volparossa-mpquic/build/volparossa-mpquic --api-version)" = 7
+      - name: Fetch pinned Node and Debian inputs without local inference
+        run: |
+          set -euo pipefail
+          python3 -B scripts/public_code_ci.py assets
+          image_url=$(jq -er '.url' build/public-code-core/tests/helper/debian13-amd64-image-v1.json)
+          image="$RUNNER_TEMP/debian-13-genericcloud-amd64-20260826-2582.qcow2"
+          curl --fail --silent --show-error --location --connect-timeout 30 --max-time 1200 \
+            --max-filesize 2147483648 --max-redirs 3 --proto '=https' --proto-redir '=https' \
+            --output "$image" "$image_url"
+          chmod 0600 "$image"
+          printf '%s  %s\n' '184761b0dad0f9ace02f9298050ca96ce3caa39a461a47706d47ff9698b59933918b91b40177fbd4d392f6446af8b4d18ecb94caca988169b19641606bf34003' "$image" | sha512sum --check --strict -
+          printf 'VOLPAROSSA_PUBLIC_CODE_IMAGE=%s\n' "$image" >>"$GITHUB_ENV"
+      - name: Capture exact public driver and Node only
+        run: python3 -B scripts/public_code_ci.py pack
+      - name: Run the core-owned real peer topology once
+        run: |
+          set -euo pipefail
+          python3 -B scripts/public_code_ci.py guard
+          core="$PWD/build/public-code-core"
+          core_sha=$(git -C "$core" rev-parse HEAD)
+          test "$core_sha" = '${{ steps.source.outputs.core_revision }}'
+          output="$RUNNER_TEMP/alpha-topology-agent-cooperative-code-proposal"
+          test ! -e "$output" && test ! -L "$output"
+          install -d -m 0700 "$output"
+          bundle="$PWD/build/public-code-proposal-inputs-ci"
+          manifest_sha=$(sha256sum "$bundle/INPUTS.json" | cut -d ' ' -f 1)
+          runner_uid=$(id -u)
+          case "$runner_uid" in ''|0|0*|*[!0-9]*) exit 1 ;; esac
+          set +e
+          sudo -n -- /usr/bin/setpriv --reuid "$runner_uid" --regid "$VOLPAROSSA_KVM_GID" \
+            --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all \
+            --no-new-privs --reset-env -- "$core/tests/integration/run-alpha-topology-vm.sh" \
+            --execute --yes --scenario agent-cooperative-code-proposal \
+            --image "$VOLPAROSSA_PUBLIC_CODE_IMAGE" \
+            --mpquic "$core/native/volparossa-mpquic/build/volparossa-mpquic" \
+            --code-bundle "$bundle" --code-manifest-sha256 "$manifest_sha" \
+            --output "$output" --expected-commit "$core_sha"
+          status=$?
+          set -e
+          python3 -B scripts/public_code_ci.py runner-status --exit-status "$status"
+          exit "$status"
+      - name: Require original source-bound peer, owner-test and cleanup proof
+        if: always()
+        run: python3 -B scripts/public_code_ci.py gate
+      - name: Collect only the core's closed allowlisted receipts
+        if: always()
+        run: python3 -B scripts/public_code_ci.py export
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: public-code-proposal-${{ github.run_id }}-${{ github.sha }}
+          path: build/public-code-receipts/*.json
+          if-no-files-found: error
+          retention-days: 14

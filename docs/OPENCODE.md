@@ -221,6 +221,15 @@ build report or local model. The historical cooperation bundle and private
 inference trial retain their original contracts. Preparing this driver or
 passing its inert contract tests is not a successful live coding trial.
 
+`opencode-public-code.yml` is the separate manual hosted entry for that proof.
+It records its own workflow commit separately from the immutable public driver
+commit and the reviewed core fixture. It reuses the core-owned real overlay/VM
+runner and final acceptance checks; it does not run a local planning model or
+start the private OpenCode inference trial. Only pinned source/runtime inputs
+and closed receipts are staged or exported. Like the private trial, dispatch
+requires the workflow to be registered on the default branch first; the actual
+run must select the reviewed integration commit, not substitute `main`.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 
