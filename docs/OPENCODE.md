@@ -309,7 +309,7 @@ KVM trial; it does not install or run the model on the development host. Its
 archive selected by its explicit model profile. The default Qwen3-0.6B profile
 retains core `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`; the separate
 `qwen3-4b-instruct-2507-v1` candidate binds core
-`39bfc0d14bd45563957c8a41e8183592e7ee7a73`. A dirty source capture is
+`1fba2a322252eeec9efb7ccdca9e04359a486889`. A dirty source capture is
 labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
 only that pinned profile using the existing guarded core provisioner.
 
@@ -406,6 +406,30 @@ and HTTP status, fixed failure categories, and pin-validated ordered download
 starts—not completed downloads. Raw logs, URLs and error text stay private and
 are removed during cleanup. This does not establish the original failure's
 cause or change any resource limit, coding task or success condition.
+
+The next original [4B trial 37205549602](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37205549602),
+on Code `5a3cc386eaeda892b99947ac9476840d5d32c143` and the same core, confirms
+the exact model/runtime provisioning, but still fails the coding task. After
+2,400,233 ms there are five provider submissions, four cleanup-confirmed execution
+failures, zero completed model responses and no read/edit/test operations. Three
+closed service events are deadlines, one is unclassified and the last is owner
+cancellation. The low observed core-memory peak and absence of OOM do not prove
+that weights loaded or generation began; the failed run retained no worker-stage
+or pause-state observations. The fixture is unchanged. Private state, owned
+processes, VM scratch and QEMU are cleaned up, and both guest and outer-host
+routes/DNS comparisons pass. Original ZIP SHA-256:
+`5d448d5ee42402d91d5428b1abb2c104b4f0067f8f7b505e76a2f118fcdc1537`;
+original job-log SHA-256:
+`29b0ccf0deb8272d905a4b5ce7f000901c5966af93a5e51bb6cbd0e70975c9ea`.
+This is successful provisioning, not a working 4B coding loop.
+
+The current 4B candidate adds closed failure-state observations from the core:
+the last validated worker stage and its begin/complete state, capacity decision
+and pressure, issued versus acknowledged owner controls, and observed peak RSS.
+This distinguishes an owner-gate pause from model loading or generation without
+exporting prompts, code, model output, paths or request IDs. A stage entry is not
+successful execution, and these observations do not retrospectively explain the
+previous failure. Worker/task deadlines, resources and acceptance remain unchanged.
 
 New host observations retain all three raw hashes and separately compare the
 IPv6 route multiset excluding only the kernel's reference-count column. Every
