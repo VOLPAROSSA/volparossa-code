@@ -9,9 +9,9 @@ const {randomBytes} = require('node:crypto');
 const {setTimeout: delay} = require('node:timers/promises');
 const {OpenCodeClient} = require('../src/opencode-client.cjs');
 const {OpenCodeTask} = require('../src/opencode-task.cjs');
-const {PrivateConversation} = require('../src/private-conversation.cjs');
+const {PrivateConversation, capabilities} = require('../src/private-conversation.cjs');
 const {startChatCompletionsProvider} = require('../src/chat-completions-provider.cjs');
-const {runtimeSettings, MODEL} = require('../src/opencode-config.cjs');
+const {runtimeSettings, isCodingModel} = require('../src/opencode-config.cjs');
 const {readFrames, writeFrame, taskFailure, record, validVerification} = require('../src/opencode-bridge.cjs');
 const COOPERATIVE_SOCKET = '/opt/core/cooperative.sock';
 const TERMINAL_TASK_ERRORS = new Set(['opencode_task_native_error', 'opencode_task_incomplete',
@@ -134,19 +134,24 @@ async function runSession({input, output, events = process}, hooks = {}) {
   input.once('end', stop); input.once('close', stop); output.once('error', broken);
   for (const name of ['SIGTERM', 'SIGINT', 'SIGHUP']) events.once(name, broken);
   try {
-    await (hooks.preflight ?? (async () => {
-      const core = new PrivateConversation('/opt/core/compute.sock');
+    const caps = capabilities(await (hooks.preflight ?? (async () => {
+      const core = new PrivateConversation('/opt/core/compute.sock', {generationPolicyVersion: 1});
       try {
-        const caps = await core.connect();
-        if (caps.model_profile !== MODEL || !caps.native_tool_template || !caps.local_only || caps.quarantined) throw Error('capabilities');
+        return await core.connect();
       } finally { core.close(); }
-    }))();
+    }))(), 1);
+    if (!isCodingModel(caps.model_profile) || !caps.native_tool_template || !caps.local_only ||
+        caps.quarantined || !caps.generation_policies.includes('greedy_v1')) throw Error('capabilities');
+    // The owner's already selected core determines this session's one model.
+    // Each provider request rechecks that identity; a core change cannot silently
+    // switch the native task to another profile or provider.
+    const model = caps.model_profile;
     if (closing) throw Error('closed');
-    provider = await (hooks.provider ?? startChatCompletionsProvider)({socketPath: '/opt/core/compute.sock', model: MODEL,
+    provider = await (hooks.provider ?? startChatCompletionsProvider)({socketPath: '/opt/core/compute.sock', model,
       diagnostics: true});
     const password = randomBytes(32).toString('hex');
     const cooperative = (hooks.cooperative ?? cooperativeMounted)();
-    const settings = runtimeSettings({baseUrl: provider.baseUrl, bearerToken: provider.bearerToken, password, cooperative});
+    const settings = runtimeSettings({baseUrl: provider.baseUrl, bearerToken: provider.bearerToken, password, cooperative, model});
     (hooks.prepare ?? prepareState)(cooperative);
     const listen = await (hooks.port ?? port)();
     child = spawnServer('/opt/opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(listen)], {
@@ -168,8 +173,8 @@ async function runSession({input, output, events = process}, hooks = {}) {
     // Short readiness probes must not shorten normal permission/cleanup RPCs.
     client.timeoutMs = 30000;
     const Task = hooks.Task ?? OpenCodeTask;
-    task = new Task(client, approve, {onStatus: status => send({type: 'status', ...status})});
-    send({type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false});
+    task = new Task(client, approve, {model, onStatus: status => send({type: 'status', ...status})});
+    send({type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false, modelProfile: model});
     await ended;
   } catch { bad = true; }
   finally {

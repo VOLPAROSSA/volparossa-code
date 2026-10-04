@@ -7,7 +7,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const {commandKind, approvalKind, ORIGINAL, TEST, retainFailure, closeRuntime,
-  createTrialVerifier, runNativeTrial} = require('../scripts/smoke_opencode_inference.cjs');
+  createTrialVerifier, runNativeTrial, bindRuntimeModel} = require('../scripts/smoke_opencode_inference.cjs');
 const {emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
 
 async function trialProject(t) {
@@ -17,6 +17,20 @@ async function trialProject(t) {
   await fs.writeFile(path.join(project, 'test_fixture.py'), TEST, {mode: 0o600, flag: 'wx'});
   return project;
 }
+test('trial model receipt comes from checked runtime identity, never a fixed or guessed profile', () => {
+  for (const modelProfile of ['qwen3-0.6b-v1', 'qwen3-4b-instruct-2507-v1']) {
+    const evidence = {model_profile: null};
+    bindRuntimeModel(evidence, {execution: 'private_local', confidentialRemoteAvailable: false, modelProfile});
+    assert.equal(evidence.model_profile, modelProfile);
+  }
+  for (const changes of [{}, {modelProfile: null}, {modelProfile: 'unreviewed-model'},
+    {modelProfile: 'qwen3-4b-instruct-2507-v1', confidentialRemoteAvailable: true}]) {
+    const evidence = {model_profile: null};
+    assert.throws(() => bindRuntimeModel(evidence,
+      {execution: 'private_local', confidentialRemoteAvailable: false, ...changes}));
+    assert.equal(evidence.model_profile, null);
+  }
+});
 test('ordinary scoped read and Python unittest spellings are accepted without a single expected command', () => {
   for (const cmd of ['cat fixture.py', 'cat /workspace/test_fixture.py', "sed -n '1,120p' fixture.py", 'ls -la', 'pwd']) {
     assert.equal(commandKind(cmd), 'read', cmd);

@@ -3,7 +3,7 @@
 const path = require('node:path');
 const {validId, bounded} = require('./opencode-client.cjs');
 const {taskFailure, TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic, validVerification} = require('./opencode-bridge.cjs');
-const MODEL = 'qwen3-0.6b-v1';
+const {MODEL, isCodingModel} = require('./opencode-config.cjs');
 const fail = code => Error(`opencode_task_${code}`);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -12,7 +12,7 @@ const record = value => value !== null && typeof value === 'object' && !Array.is
 class OpenCodeTask {
   constructor(client, approve, {onStatus = () => {}, model = MODEL, approvalMs = 30000} = {}) {
     if (typeof approve !== 'function' || typeof onStatus !== 'function' ||
-        !/^[a-z0-9][a-z0-9._-]{0,95}$/.test(model) || !Number.isInteger(approvalMs) || approvalMs < 1 || approvalMs > 300000) {
+        !isCodingModel(model) || !Number.isInteger(approvalMs) || approvalMs < 1 || approvalMs > 300000) {
       throw fail('scope');
     }
     this.client = client; this.approval = approve; this.onStatus = onStatus; this.model = model; this.approvalMs = approvalMs;

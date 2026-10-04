@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const {EventEmitter} = require('node:events');
 const {OpenCodeTask, MODEL} = require('../src/opencode-task.cjs');
 const {emptyTaskDiagnostic, validTaskDiagnostic} = require('../src/opencode-bridge.cjs');
-function answer(session = 'ses_root') {
-  return {info: {id: 'msg_result', sessionID: session, role: 'assistant', providerID: 'volparossa', modelID: MODEL,
+function answer(session = 'ses_root', model = MODEL) {
+  return {info: {id: 'msg_result', sessionID: session, role: 'assistant', providerID: 'volparossa', modelID: model,
     finish: 'stop', time: {completed: 1}, path: {cwd: '/workspace'}}, parts: [
     {id: 'prt_text', sessionID: session, messageID: 'msg_result', type: 'text', text: 'Synthetic response.'},
   ]};
@@ -14,7 +14,7 @@ function answer(session = 'ses_root') {
 class Client extends EventEmitter {
   constructor(run = async () => answer()) { super(); this.workspace = '/workspace'; this.ready = false; this.run = run; this.calls = []; }
   async connect() { this.ready = true; }
-  async createSession() { return {id: 'ses_root', directory: this.workspace, model: {id: MODEL, providerID: 'volparossa'}}; }
+  async createSession({model = MODEL} = {}) { return {id: 'ses_root', directory: this.workspace, model: {id: model, providerID: 'volparossa'}}; }
   async prompt(id, text, options) { this.calls.push(['prompt', id, text]); return this.run(this, options); }
   async getSession(id) { return {id, directory: this.workspace, parentID: id === 'ses_child' ? 'ses_root' : 'ses_foreign'}; }
   async abort(id) { this.calls.push(['abort', id]); return true; }
@@ -41,6 +41,21 @@ test('verified terminal native result, explicit one-shot command approval, and s
   assert.equal(result.commands, 1); assert.equal(result.nativeTurnCompleted, true); assert.equal(result.taskVerified, false);
   assert.deepEqual(task.diagnostics.permissions, {requested: 1, forwarded: 1, accepted: 1, rejected: 0, unconfirmed: 0});
   assert.deepEqual(client.calls.at(-1), ['delete', 'ses_root']);
+});
+test('4B task preserves selected identity across native session, prompt and result', async () => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  for (const returned of [model, MODEL]) {
+    const client = new Client(async (_client, options) => {
+      assert.equal(options.model, model); return answer('ses_root', returned);
+    });
+    const task = new OpenCodeTask(client, async () => assert.fail('no proposed tool'), {model});
+    if (returned === model) assert.equal((await task.run('Synthetic 4B task')).nativeTurnCompleted, true);
+    else await assert.rejects(task.run('Synthetic 4B task'), /incomplete/);
+    assert.deepEqual(client.calls.at(-1), ['delete', 'ses_root']);
+  }
+  for (const model of ['unreviewed-model', 'qwen3-4b', null]) {
+    assert.throws(() => new OpenCodeTask(new Client(), async () => false, {model}), /scope/);
+  }
 });
 test('read without approval and a failed tool are distinguishable without exporting private details', async () => {
   for (const status of ['completed', 'error']) {

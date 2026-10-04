@@ -54,6 +54,37 @@ test('negotiated greedy requests require matching result evidence and cannot sil
     /unsupported_generation_policy/);
 });
 
+test('closed 4B profile binds exact template, limits, greedy policy and returned model', async t => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  const negotiated = {...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1']};
+  assert.equal(negotiated.conversation_template, 'qwen3-tools-instruct-2507-v1');
+  assert.equal(negotiated.model_context_tokens, 262144);
+  assert.equal(negotiated.max_prompt_tokens, 12288);
+  assert.equal(negotiated.max_new_tokens, 1024);
+  assert.equal(negotiated.max_output_bytes, 4096);
+  assert.equal(negotiated.max_request_bytes, 524288);
+  const request = {...input(), generation_policy: 'greedy_v1'};
+  const answer = {...result(undefined, model), generation_policy: 'greedy_v1'};
+  const f = await fixture(t, (socket, message) => {
+    reply(socket, message, 'admitted'); reply(socket, message, 'result', {result: answer});
+  }, structuredClone(negotiated), {generationPolicyVersion: 1});
+  await f.client.connect();
+  assert.deepEqual(await f.client.submit(request), answer);
+  assert.deepEqual(f.requests[1].operation.conversation, request);
+  for (const change of [{conversation_template: 'qwen3-tools-nonthinking-v1'}, {model_context_tokens: 32768},
+    {max_prompt_tokens: 262144}, {max_new_tokens: 2048}, {generation_policies: []}, {model_profile: 'qwen3-4b'}]) {
+    const wrong = await fixture(t, () => assert.fail('unvalidated profile must never submit'),
+      {...negotiated, ...change}, {generationPolicyVersion: 1});
+    await assert.rejects(wrong.client.connect());
+  }
+  for (const change of [{model_profile: 'qwen3-0.6b-v1'}, {generation_policy: 'sampled'}]) {
+    const wrong = await fixture(t, (socket, message) => {
+      reply(socket, message, 'admitted'); reply(socket, message, 'result', {result: {...answer, ...change}});
+    }, structuredClone(negotiated), {generationPolicyVersion: 1});
+    await wrong.client.connect(); await assert.rejects(wrong.client.submit(request));
+  }
+});
+
 test('public/cloud/widened/unknown capabilities fail before any task', async t => {
   for (const change of [{ network_access: true }, { training: true }, { cloud_fallback: true },
     { max_prompt_tokens: 999999 }, { native_tool_template: true }, { model_profile: 'unknown' },

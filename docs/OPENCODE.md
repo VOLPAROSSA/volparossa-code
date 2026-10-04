@@ -50,9 +50,33 @@ runtime version. It is an operator-owned build record, not independent release
 authorization or evidence of model behavior. The launcher downloads nothing.
 
 The core socket must be same-owner mode `0600` in a mode-`0700` directory. The
-current executor must advertise the exact `qwen3-0.6b-v1` conversation profile.
+owner-selected executor must advertise one of the exact supported conversation
+profiles below; the editor does not choose an arbitrary model or download one.
 Python 3, bubblewrap and system runtime libraries must already be available.
 No existing OpenCode/Codex profile is modified.
+
+### Core-selected coding profiles
+
+- `qwen3-0.6b-v1`: the unchanged default; native template
+  `qwen3-tools-nonthinking-v1`, model context 32,768 tokens.
+- `qwen3-4b-instruct-2507-v1`: the explicit larger profile; native template
+  `qwen3-tools-instruct-2507-v1`, model context 262,144 tokens.
+
+Both profiles keep the same bounded conversation allowance: at most 12,288 prompt
+tokens, 1,024 new tokens, 4,096 output bytes and a 524,288-byte request envelope.
+The larger model context does not enlarge the admitted prompt or authorize silent
+truncation. The core remains responsible for exact token validation and resource
+admission. Model quality and useful execution still require real-model evidence.
+
+Before starting OpenCode, the owner validates the complete core capability reply,
+including template, limits, private-local scope and negotiated `greedy_v1` policy.
+That one model identity binds the native catalog, all agent roles, provider,
+task/session checks and trial receipt. Each provider request checks the core again;
+a different profile or incompatible result is refused, not silently substituted.
+The existing version-1 ready bridge without a model identity is interpreted only
+as its historical fixed 0.6B profile, never as 4B. Current owners report the actual
+validated identity explicitly. Socket and orchestration tests cover these bindings;
+they are not evidence of successful 4B coding or confidential peer execution.
 
 ## Execution path
 

@@ -10,6 +10,7 @@ const {spawnSync} = require('node:child_process');
 const {OpenCodeRuntime} = require('../src/opencode-runtime.cjs');
 const {taskFailure} = require('../src/opencode-bridge.cjs');
 const {createWorkspaceVerifier} = require('../src/workspace-verifier.cjs');
+const {isCodingModel} = require('../src/opencode-config.cjs');
 
 const ORIGINAL = 'def add(a, b):\n    return a - b\n';
 const TEST = 'import unittest\nfrom fixture import add\n\nclass AddTests(unittest.TestCase):\n'
@@ -115,6 +116,13 @@ async function runNativeTrial(runtime, project, controller, evidence, verify) {
   evidence.verification = {status, checks, continuations}; // Never export private check output.
 }
 
+function bindRuntimeModel(evidence, runtime) {
+  assert.equal(runtime.execution, 'private_local');
+  assert.equal(runtime.confidentialRemoteAvailable, false);
+  assert.ok(isCodingModel(runtime.modelProfile));
+  evidence.model_profile = runtime.modelProfile;
+}
+
 async function isolatedCheck(project, parent) {
   const check = await fs.mkdtemp(path.join(parent, 'opencode-check-'));
   await fs.chmod(check, 0o700);
@@ -173,7 +181,7 @@ async function main(args = process.argv.slice(2)) {
     core_model_provenance_owned_by_parent: true, vm_cleanup_owned_by_parent: true,
     source_commit: build.source_commit, binary_sha256: build.binary_sha256,
     build_report_sha256: hash(await fs.readFile(buildReport)), node_sha256: config.nodeSha256,
-    model_profile: 'qwen3-0.6b-v1', approved_read: 0, approved_edit: 0, approved_test: 0,
+    model_profile: null, approved_read: 0, approved_edit: 0, approved_test: 0,
     refused: 0, completed_commands: 0, failed_commands: 0, original_test_unchanged: false,
     fixture_changed: false, independent_test_passed: false, runtime_cleanup_confirmed: false,
     project_removed: false, original_sha256: hash(ORIGINAL), resulting_sha256: null, elapsed_ms: 0};
@@ -192,7 +200,7 @@ async function main(args = process.argv.slice(2)) {
     const verify = createTrialVerifier(project);
     evidence.phase = 'runtime-start';
     runtime = await OpenCodeRuntime.start(config, {workspace: project});
-    assert.equal(runtime.execution, 'private_local'); assert.equal(runtime.confidentialRemoteAvailable, false);
+    bindRuntimeModel(evidence, runtime);
     evidence.phase = 'native-task';
     await runNativeTrial(runtime, project, controller, evidence, verify);
     evidence.phase = 'independent-check';
@@ -230,4 +238,4 @@ if (require.main === module) main().catch(() => {
   process.stderr.write('{"passed":false,"phase":"guard","failure":"guard_or_input_rejected"}\n'); process.exitCode = 1;
 });
 module.exports = {main, commandKind, approvalKind, ORIGINAL, TEST, guestGuard, retainFailure, closeRuntime,
-  createTrialVerifier, runNativeTrial};
+  createTrialVerifier, runNativeTrial, bindRuntimeModel};

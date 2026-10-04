@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {execFileSync} = require('node:child_process');
+const {createHash} = require('node:crypto');
 const {runtimeSettings, COMMIT, VERSION, MODEL} = require('../src/opencode-config.cjs');
 const input = {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64), password: 'b'.repeat(64)};
 test('pinned runtime uses only core provider with separate one-shot tool boundaries', () => {
@@ -26,6 +27,31 @@ test('pinned runtime uses only core provider with separate one-shot tool boundar
   assert.equal(env.OPENCODE_PURE, '1');
   assert.equal(Object.hasOwn(env, 'HOME'), false);
   assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false);
+});
+test('legacy 0.6B defaults, prompts and permissions remain byte-identical', () => {
+  const hashes = ['f9d6b23b1a13577d6dcea542f87b0029c13f872f8d8b30d2fc44afabcde43584',
+    '51506fc98a31bff27c8c65137a042ee799ce1482b8a00f0c47fa6c6e7bad4ac8'];
+  for (const cooperative of [false, true]) {
+    assert.equal(createHash('sha256').update(JSON.stringify(runtimeSettings({...input, cooperative})))
+      .digest('hex'), hashes[Number(cooperative)]);
+  }
+});
+test('4B settings use only the exact core-selected profile without changing task or tool policy', () => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  const baseline = runtimeSettings(input).config, selected = runtimeSettings({...input, model}).config;
+  assert.deepEqual(Object.keys(selected.provider.volparossa.models), [model]);
+  assert.equal(selected.model, `volparossa/${model}`);
+  assert.equal(selected.small_model, selected.model);
+  assert.deepEqual(selected.provider.volparossa.models[model].limit, {context: 262144, output: 1024});
+  for (const role of ['build', 'general', 'explore']) {
+    assert.equal(selected.agent[role].model, selected.model);
+    assert.equal(selected.agent[role].prompt.replace(model, MODEL), baseline.agent[role].prompt);
+    assert.deepEqual(selected.agent[role].permission, baseline.agent[role].permission);
+    assert.equal(selected.agent[role].temperature, baseline.agent[role].temperature);
+  }
+  for (const unknown of ['qwen3-4b', 'unreviewed-model', 'openai/gpt', null, {}]) {
+    assert.throws(() => runtimeSettings({...input, model: unknown}));
+  }
 });
 test('configuration rejects remote, malformed and unauthenticated endpoints', () => {
   for (const baseUrl of ['https://example.org/v1', 'http://localhost:1234/v1',

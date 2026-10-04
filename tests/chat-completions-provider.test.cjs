@@ -31,9 +31,9 @@ function tool(name = 'read') {
   return { type: 'function', function: { name, description: 'A synthetic owner-authorized tool.',
     parameters: { type: 'object', properties: { file: { type: 'string' } } } } };
 }
-async function start(t, handler, diagnostics = false) {
-  const f = await fixture(t, handler, caps(MODEL));
-  const provider = await startChatCompletionsProvider({ socketPath: f.socketPath, model: MODEL, diagnostics });
+async function start(t, handler, diagnostics = false, model = MODEL) {
+  const f = await fixture(t, handler, caps(model));
+  const provider = await startChatCompletionsProvider({ socketPath: f.socketPath, model, diagnostics });
   return { ...f, provider };
 }
 function send(provider, value, headers = {}, suffix = '/chat/completions') {
@@ -139,6 +139,28 @@ test('SDK nonstreaming generation and no-usage streams use the same checked core
     assert.ok(streamed.every(event => event.usage === undefined));
     assert.equal(streamed.at(-1).choices[0].finish_reason, 'stop');
   } finally { await f.provider.close(); }
+});
+test('4B provider preserves its validated core profile and refuses frontend substitution', async t => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  const f = await start(t, (socket, message) => {
+    assert.equal(message.operation.conversation.generation_policy, 'greedy_v1');
+    reply(socket, message, 'admitted'); reply(socket, message, 'result', {result: result(undefined, model)});
+  }, true, model);
+  try {
+    const response = await send(f.provider, {...request(false), model});
+    assert.equal(response.status, 200); assert.equal(JSON.parse(response.body).model, model);
+    const originalSubmits = f.provider.observations.submitted;
+    const mismatch = await send(f.provider, request(false));
+    assert.equal(mismatch.status, 400); assert.equal(JSON.parse(mismatch.body).error.code, 'model_mismatch');
+    assert.equal(f.provider.observations.submitted, originalSubmits);
+  } finally { await f.provider.close(); }
+  const changed = await fixture(t, () => assert.fail('changed core model must not submit'), caps(MODEL));
+  const provider = await startChatCompletionsProvider({socketPath: changed.socketPath, model});
+  try {
+    const response = await send(provider, {...request(false), model});
+    assert.equal(response.status, 400); assert.equal(JSON.parse(response.body).error.code, 'model_mismatch');
+    assert.equal(changed.requests.length, 1);
+  } finally { await provider.close(); }
 });
 
 test('tool proposal identity survives SDK assistant/tool history without execution authority', async t => {

@@ -2,6 +2,7 @@
 'use strict';
 const path = require('node:path');
 const {spawn} = require('node:child_process');
+const {MODEL, isCodingModel} = require('./opencode-config.cjs');
 const {readFrames, writeFrame, record, isFailureCode, validProviderDiagnostic, validTaskDiagnostic,
   validVerification, validVerificationSummary} = require('./opencode-bridge.cjs');
 const FIELDS = ['version', 'opencode', 'opencodeSha256', 'buildReport', 'node', 'nodeSha256', 'socketPath'];
@@ -23,6 +24,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
       cancelMs > 45000) throw fail();
   let terminal, run, used = false, closing, settled = false, readyResolve, readyReject, protocolBad = false;
   let diagnostics = null, taskDiagnostics = null;
+  let modelProfile = MODEL;
   const verifiers = new Set();
   async function joinVerifier(work) {
     if (!work) return;
@@ -50,7 +52,11 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
     if (protocolBad) return;
     if (!settled) {
       if (value.type !== 'ready' || value.version !== 1 || value.execution !== 'private_local' ||
-          value.confidentialRemoteAvailable !== false) { bad(); return; }
+          value.confidentialRemoteAvailable !== false ||
+          Object.hasOwn(value, 'modelProfile') && !isCodingModel(value.modelProfile)) { bad(); return; }
+      // Legacy version-1 owners only supported the fixed 0.6B profile. Missing
+      // identity therefore preserves that compatibility, never implies 4B.
+      modelProfile = Object.hasOwn(value, 'modelProfile') ? value.modelProfile : MODEL;
       settled = true; readyResolve(); return;
     }
     if (!run || run.finished) { bad(); return; }
@@ -169,7 +175,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
     run.cancelTimer = setTimeout(bad, cancelMs);
     try { writeFrame(child.stdin, {type: 'cancel'}); } catch { bad(); }
   };
-  return {close, stop, execution: 'private_local', confidentialRemoteAvailable: false,
+  return {close, stop, execution: 'private_local', confidentialRemoteAvailable: false, modelProfile,
     get diagnostics() { return diagnostics === null ? null : JSON.parse(JSON.stringify(diagnostics)); },
     get taskDiagnostics() { return taskDiagnostics === null ? null : JSON.parse(JSON.stringify(taskDiagnostics)); },
     async run(prompt, {signal, approve = async () => false, onStatus = () => {}, verify, maxVerificationRounds = 3} = {}) {

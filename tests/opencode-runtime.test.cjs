@@ -60,8 +60,20 @@ if(frame.type==='run') {
   assert.deepEqual(result, RESULT); assert.equal(proposals[0].permission, 'bash');
   assert.deepEqual(statuses, [{commands: 1, status: 'completed'}]);
   assert.equal(runtime.execution, 'private_local'); assert.equal(runtime.confidentialRemoteAvailable, false);
+  assert.equal(runtime.modelProfile, 'qwen3-0.6b-v1'); // Compatibility with the fixed-model version-1 owner.
   await Promise.all([runtime.close(), runtime.close()]); assert.equal(process.exitCode, 0);
   await assert.rejects(runtime.run('Again'), /opencode_runtime/);
+});
+test('readiness accepts only closed core-bound model identities and never guesses 4B', async t => {
+  for (const modelProfile of ['qwen3-0.6b-v1', 'qwen3-4b-instruct-2507-v1', null, 'unreviewed-model']) {
+    const process = child(t, script('', {ready: {...READY, modelProfile}}));
+    if (modelProfile == null || modelProfile === 'unreviewed-model') {
+      await assert.rejects(ownedOpenCode(process, {startupMs: 1000, closeMs: 1000}), /opencode_runtime/);
+    } else {
+      const runtime = await ownedOpenCode(process, {startupMs: 1000, closeMs: 1000});
+      assert.equal(runtime.modelProfile, modelProfile); await runtime.close();
+    }
+  }
 });
 test('cancel sends cancellation, declines late UI answers, and returns only generic failure', async t => {
   const process = child(t, script(`

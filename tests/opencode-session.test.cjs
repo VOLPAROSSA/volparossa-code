@@ -9,18 +9,23 @@ const {runSession} = require('../scripts/opencode_session.cjs');
 const {readFrames, writeFrame, emptyProviderDiagnostic, emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
 const {startChatCompletionsProvider} = require('../src/chat-completions-provider.cjs');
 const {fixture: coreFixture, caps, result: coreResult, reply} = require('./conversation-fixture.cjs');
+const DEFAULT_MODEL = 'qwen3-0.6b-v1';
 
 function fixture(Task, receive, options = {}) {
   const input = new PassThrough(), output = new PassThrough(), events = new EventEmitter(), observed = [];
+  const binding = {};
   const provider = options.provider ?? {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64),
     diagnostics: {summary: emptyProviderDiagnostic()},
     observations: options.observations ?? {submitted: 0, cleanup_confirmed: 0},
     async close() { observed.push('provider-close'); if (options.badCleanup) throw Error('private detail'); }};
-  const hooks = {Task, preflight: async () => {}, provider: async () => provider,
+  const hooks = {Task, preflight: async () => options.capabilities ??
+    {...caps(options.model ?? DEFAULT_MODEL), generation_policy_version: 1, generation_policies: ['greedy_v1']},
+    provider: async value => { binding.provider = value.model; return provider; },
     prepare(cooperative) { assert.equal(cooperative, options.cooperative ?? false); },
     cooperative: () => options.cooperative ?? false, port: async () => 1235, approvalMs: 15,
     spawn(binary, args, config) {
       assert.equal(binary, '/opt/opencode'); assert.equal(config.env.OPENCODE_PURE, '1');
+      binding.settings = JSON.parse(config.env.OPENCODE_CONFIG_CONTENT);
       assert.equal(config.env.OPENAI_API_KEY, undefined); assert.equal(args[0], 'serve');
       assert.equal(JSON.parse(config.env.OPENCODE_CONFIG_CONTENT).permission.volparossa_delegate_public,
         options.cooperative ? 'allow' : undefined);
@@ -35,11 +40,14 @@ function fixture(Task, receive, options = {}) {
   };
   const unbind = readFrames(output, value => {
     observed.push(value.type);
-    if (value.type === 'ready') writeFrame(input, {type: 'run', prompt: 'Synthetic task',
-      ...(options.verification ? {verification: options.verification} : {})});
+    if (value.type === 'ready') {
+      binding.ready = value.modelProfile;
+      writeFrame(input, {type: 'run', prompt: 'Synthetic task',
+        ...(options.verification ? {verification: options.verification} : {})});
+    }
     else receive(value, input);
   }, () => assert.fail('owner frame'));
-  return {observed, input, done: runSession({input, output, events}, hooks).finally(unbind)};
+  return {observed, input, binding, done: runSession({input, output, events}, hooks).finally(unbind)};
 }
 const result = {text: 'Fixture only', commands: 0, nativeTurnCompleted: true, taskVerified: false};
 test('owner connects pinned runtime, forwards exact approvals and waits for core/process cleanup', async () => {
@@ -57,6 +65,34 @@ test('owner connects pinned runtime, forwards exact approvals and waits for core
   });
   assert.equal(await f.done, 0);
   assert.deepEqual(f.observed, ['ready', 'approval', 'result', 'client-close', 'provider-close', 'SIGTERM']);
+});
+
+test('owner-selected validated 4B core binds provider, native catalog and task before startup', async () => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  let taskModel;
+  class Task {
+    constructor(_client, _approve, options) { taskModel = options.model; }
+    async run() { return result; }
+  }
+  const f = fixture(Task, (_value, input) => input.end(), {model});
+  assert.equal(await f.done, 0);
+  assert.equal(f.binding.provider, model); assert.equal(taskModel, model);
+  assert.equal(f.binding.ready, model);
+  assert.equal(f.binding.settings.model, `volparossa/${model}`);
+  assert.deepEqual(Object.keys(f.binding.settings.provider.volparossa.models), [model]);
+});
+
+test('incompatible, widened or quarantined core fails before provider or native startup', async () => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  for (const changed of [{quarantined: true}, {local_only: false}, {max_prompt_tokens: 262144},
+    {generation_policies: []}, {model_profile: 'unreviewed-model'}]) {
+    class Task { constructor() { assert.fail('must not create task'); } }
+    const f = fixture(Task, () => assert.fail('must not signal ready'), {capabilities: {
+      ...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'], ...changed,
+    }});
+    assert.equal(await f.done, 1);
+    assert.deepEqual(f.binding, {}); assert.deepEqual(f.observed, []);
+  }
 });
 test('expired approval does not prevent subsequent requests or accept a late response', async () => {
   class Task {
