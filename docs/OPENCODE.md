@@ -77,7 +77,7 @@ Before starting OpenCode, the owner validates the complete core capability reply
 including template, limits, private-local scope and negotiated `greedy_v1` policy.
 Current native sessions also require `execution_error_version: 1`; an older core
 without that capability is refused before starting the runtime. Both native smoke
-profiles pin core `a5246942707890978867930dca518a29d1d48bd5` for this contract,
+profiles pin core `6a517b576baa17e7329661ee0476d1848081d114` for this contract,
 including the preserved main integrations and reviewed source-quality fixes.
 Legacy Q&A and conversation clients that do not opt in remain unchanged.
 
@@ -506,11 +506,22 @@ stop, and greedy generation does not guarantee a completed coding task.
 KVM trial; it does not install or run the model on the development host. Its
 `pack` mode captures each Code source/runtime file by hash and the exact core
 archive selected by its explicit model profile. Both current profiles pin core
-`a5246942707890978867930dca518a29d1d48bd5`, while retaining their different
+`6a517b576baa17e7329661ee0476d1848081d114`, while retaining their different
 models and resource profiles. Historical 0.6B trials used `845cc84d`; the last
 4B trial used `1297f8f1a5d163d802efd066c51a950b95588fa5`, including the bounded
 provisioning-timeout recovery from `3aa0e2d0`. Neither those historical outcomes
 nor the synthetic native-runtime probe proves the current real-model candidate.
+
+The earlier `a5246942` candidate's
+[Quality run `37225595367`](https://github.com/VOLPAROSSA/volparossa/actions/runs/37225595367)
+remains **failed**: strict Clippy rejected two 103-line diagnostic functions.
+No native model trial was dispatched for that pair. The follow-up extracts the
+existing snapshot parser and moves byte-identical Python test assertions into a
+constant, without changing validation, model behavior, resources or acceptance
+criteria. Its source checks are pending; this is not a rerun or a passing
+real-model result. Original job `111504476222` log SHA-256:
+`1ef3aca56b4052b9b56e2f9a469543e07cfdb1718d5a8706750c286f40f6d41c`.
+
 The previous `37209881216` attempt remains failed before model
 execution. [Trial `37217032474`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37217032474)
 on the previous core `f25352df` completed the pinned 4B provisioning and returned one actual model result,
