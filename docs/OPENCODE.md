@@ -275,6 +275,21 @@ the missing advertisements. The follow-up core
 role-presence/status/event summaries from existing cleanup captures, not raw
 identities, endpoints or logs. It does not relax discovery or route requirements.
 
+The [public trial `37218917021`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37218917021)
+on workflow `693516f8` / core `1297f8f1` also **failed**, but did observe all
+eight advertisements after 215 queries. It stopped at
+`CUSTODY_CAPTURE_UNAVAILABLE` before the owner driver or model task: the original
+capture guard allowed document discovery, not the new explicit code-proposal
+scenario. Core `81f5f9de3fa25e430357ca7b6b457522b2193063` adds only that missing
+capture scope under `agent-jobs`, with actual-shell allow/deny regression checks.
+The public CI pin advances to that reviewed fixture; the private 4B pin stays at
+`1297f8f1`, and immutable public driver `f27576eb`, model, original tests, privacy
+checks and deadlines remain unchanged. Network cleanup reports zero objects and
+equal guest-root hashes. This fixes a reproduced instrumentation mismatch, not
+the earlier unexplained inventory failure or a proven live coding result.
+Original ZIP SHA-256: `2b415caf44bc7e98b6eb40d1a6d00e66a57ba21f3f42e33b68a9885f923b76d8`;
+job `111485066863` log SHA-256: `a7358305bc82d419b39d576d9bc55d175d4e0e99e3e7d1c087c12fb69c2cf2d0`.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 
