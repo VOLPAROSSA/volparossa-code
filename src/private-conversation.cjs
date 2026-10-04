@@ -67,8 +67,18 @@ function capabilities(value, generationPolicyVersion, executionErrorVersion) {
   check(object(value));
   const generation = generationPolicyVersion === 1 ? ['generation_policy_version', 'generation_policies'] : [];
   const execution = executionErrorVersion === 1 ? ['execution_error_version'] : [];
+  const backend = ['inference_backend', 'required_generation_policy'];
   equalLimits(value, { ...expectedLimits(value.model_profile), execution_slots: 1,
-    max_request_bytes: requestLimit(value.model_profile), max_response_bytes: 65536 }, ['max_seconds', 'quarantined', ...generation, ...execution]);
+    max_request_bytes: requestLimit(value.model_profile), max_response_bytes: 65536 },
+  ['max_seconds', 'quarantined', ...generation, ...execution, ...backend]);
+  // The owner-selected core may expose this one backend restriction, not a
+  // frontend executor choice or independent proof of the returned backend.
+  if (backend.some(key => Object.hasOwn(value, key))) {
+    check(backend.every(key => Object.hasOwn(value, key)) &&
+      value.inference_backend === 'llama_cpp_bf16_v1' && value.required_generation_policy === 'greedy_v1' &&
+      value.model_profile === 'qwen3-4b-instruct-2507-v1' && generationPolicyVersion === 1,
+    'incompatible_capabilities');
+  }
   check(Number.isInteger(value.max_seconds) && value.max_seconds >= 1 && value.max_seconds <= 600 &&
     typeof value.quarantined === 'boolean', 'incompatible_capabilities');
   if (generationPolicyVersion === 1) {
