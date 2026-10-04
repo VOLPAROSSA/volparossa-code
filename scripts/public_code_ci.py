@@ -18,7 +18,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
-CORE = '81f5f9de3fa25e430357ca7b6b457522b2193063'
+CORE = '2a1b4ad347b7d9f12a6a4c2beee40ff8706bd477'
 DRIVER = 'f27576ebd7e7ded2f1319186f34df87f48e970d7'
 DRIVER_TREE = '14268639d341eeaaba2e9371d2d9c6537fce57ff'
 SCENARIO = 'agent-cooperative-code-proposal'

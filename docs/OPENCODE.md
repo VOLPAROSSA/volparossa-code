@@ -290,6 +290,24 @@ the earlier unexplained inventory failure or a proven live coding result.
 Original ZIP SHA-256: `2b415caf44bc7e98b6eb40d1a6d00e66a57ba21f3f42e33b68a9885f923b76d8`;
 job `111485066863` log SHA-256: `a7358305bc82d419b39d576d9bc55d175d4e0e99e3e7d1c087c12fb69c2cf2d0`.
 
+The subsequent [public trial `37220221345`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37220221345)
+on workflow `423c5e2f` / core `81f5f9de` **failed overall** at
+`CODE_PROPOSAL_OBSERVER_STOP_FAILED`. Its original driver and worker-observer
+receipts show actual Qwen0.6B peer execution, EOS, a raw 31-byte replacement,
+the owner-approved edit and passing unchanged original tests plus the independent
+check. Both captured phases separately pass the original path validators; the
+final control receipt and complete evidence join were not reached. The exact
+fixture stop allowlist omitted the newly introduced control observer and refused
+it before invoking a service stop. The new public-only pin
+`2a1b4ad347b7d9f12a6a4c2beee40ff8706bd477` admits that exact unit only in the
+explicit code-proposal scope, retaining service-state, zero-PID and empty-cgroup
+checks. Targeted shell/socket contracts pass; this is not a replacement live
+pass, native OpenCode planner proof or private offload. The private 4B pin and
+immutable driver remain unchanged. Original ZIP SHA-256:
+`6459dc4ef5351558f6818cf552b507f57d1b98ccd05148282e27d9ee765ef458`;
+job `111488876530` log SHA-256:
+`9b0f259e574f7e9399d6751adcb3c7d5130ab36d6725fe3045b6f2ebbdaf10d9`.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 
