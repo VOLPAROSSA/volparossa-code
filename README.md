@@ -85,6 +85,13 @@ cancellation; original task results and incomplete-answer flags are retained.
 This interface currently requires the separate core cooperative-compute candidate,
 not stock `main`. The joined path with actual peer inference remains to be proved.
 
+**Run OpenCode Task with Enrolled Public Source** instead enrolls the complete
+saved source file for a peer-generated code replacement. The native agent can
+request that original proposal through the same single-use tool, then propose
+local changes and run separately approved checks. This connects the code-purpose
+service to the agent loop; a complete real-model cooperative coding run remains
+to be proved. See [public source tasks](docs/OPENCODE.md#explicit-public-single-file-proposals-candidate).
+
 This public-only development step is **not** the intended limit of cooperation:
 default collaboration, shared learning and protected private execution across
 the network remain required functionality.

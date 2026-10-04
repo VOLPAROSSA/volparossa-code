@@ -170,6 +170,22 @@ is awaited; incomplete results remain incomplete.
 
 ### Explicit public single-file proposals (candidate)
 
+**Run OpenCode Task with Enrolled Public Source** connects the same native agent
+loop to the code-proposal service. It captures the complete saved source file in
+the selected workspace, displays its exact bytes and public question, and asks
+for sharing-rights consent before starting OpenCode. This uses the v6 code task,
+not the document-summary enrollment of **Enrolled Public Work**. The two service
+purposes remain checked and are not silently substituted.
+
+The agent can invoke its existing argumentless `volparossa_delegate_public` tool
+once to receive the original source-bound replacement proposal. Core still
+chooses the executor; the agent may inspect the result and propose local edits
+under the existing one-shot approvals and owner-selected verification loop.
+Private planning history, verification output and other files are not exported.
+The private conversation service is still needed for planning. The new editor
+wiring is not yet proof of a complete real-model OpenCode/peer coding loop or
+protected private network execution.
+
 **Propose a Replacement for a Public Source File** is a separate owner command,
 not a private-history fallback. It captures the complete saved selected file
 (at most 4096 UTF-8 bytes) and a public task (at most 512 bytes), shows their exact
