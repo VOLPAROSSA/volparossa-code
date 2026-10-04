@@ -241,7 +241,7 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
     if (closing || active) { errorReply(response, 503, 'busy'); return; }
     if (Number(request.headers['content-length'] ?? 0) > HTTP_BYTES) { errorReply(response, 413, 'request_bound'); return; }
     const controller = new AbortController();
-    const client = new PrivateConversation(socketPath, { generationPolicyVersion: 1 });
+    const client = new PrivateConversation(socketPath, { generationPolicyVersion: 1, executionErrorVersion: 1 });
     const owner = { controller, client, done: null };
     active = owner;
     response.once('close', () => { if (!response.writableFinished) controller.abort(); });
@@ -287,11 +287,14 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
         }
         const code = error.message?.startsWith('private_compute_') ? error.code : 'provider_failed';
         if (diagnostics) count(summary.request_errors, PROVIDER_ERRORS.includes(code) ? code : 'other');
-        // These two errors follow a terminal, cleanup-confirmed model result.
+        // Output errors follow a terminal, cleanup-confirmed model result. The
+        // negotiated execution budget error instead follows confirmed cleanup
+        // without a model result; it must not restart the same expensive turn.
         // OpenCode v1.18.34 retries every 5xx, so 502 would repeatedly regenerate
         // the same unusable greedy turn. Preserve transient/uncertain failures.
         const status = ['busy', 'cleanup_unconfirmed', 'socket_unavailable', 'execution_failed'].includes(code) ? 503 :
-          ['invalid_model_output', 'tool_choice_not_met'].includes(code) ? 422 : code === 'request_bound' ? 413 : 400;
+          ['invalid_model_output', 'tool_choice_not_met', 'execution_budget_exceeded'].includes(code) ? 422 :
+          code === 'request_bound' ? 413 : 400;
         errorReply(response, status, code);
       } finally {
         client.close();

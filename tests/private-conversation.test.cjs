@@ -23,6 +23,80 @@ test('actual framed socket uses separate handshake and yields exact cleanup-conf
   await assert.rejects(f.client.ask({ question: 'legacy', context: 'must not send' }));
 });
 
+test('execution error negotiation is independent, strict, and unchanged when absent', async t => {
+  for (const value of [null, 0, 2, true]) {
+    assert.throws(() => new PrivateConversation('/fixture/core.sock', {executionErrorVersion: value}),
+      /unsupported_execution_error_version/);
+  }
+  for (const advertised of [caps(), {...caps(), execution_error_version: null},
+    {...caps(), execution_error_version: 2}]) {
+    const f = await fixture(t, () => assert.fail('must not submit'), advertised, {executionErrorVersion: 1});
+    await assert.rejects(f.client.connect(), {code: 'incompatible_capabilities'});
+    assert.deepEqual(f.requests[0].operation, {type: 'conversation_capabilities', execution_error_version: 1});
+  }
+  const unsolicited = await fixture(t, () => assert.fail('must not submit'), {...caps(), execution_error_version: 1});
+  await assert.rejects(unsolicited.client.connect());
+});
+
+test('only a negotiated admitted task has a budget-error cleanup receipt, with request-local provenance', async t => {
+  let submitted = 0;
+  const f = await fixture(t, (socket, request) => {
+    if (++submitted === 1) reply(socket, request, 'admitted');
+    reply(socket, request, 'error', {code: 'execution_budget_exceeded'});
+  }, {...caps(), execution_error_version: 1}, {executionErrorVersion: 1});
+  await f.client.connect();
+  let accepted;
+  await assert.rejects(f.client.submit(input()), error => {
+    accepted = error;
+    assert.equal(error.code, 'execution_budget_exceeded');
+    assert.equal(terminalCleanupConfirmed(error), true);
+    return true;
+  });
+  await assert.rejects(f.client.submit(input()), error => {
+    assert.equal(error.code, 'invalid_response');
+    assert.equal(terminalCleanupConfirmed(error), false);
+    return true;
+  });
+  assert.equal(terminalCleanupConfirmed({...accepted, cleanupConfirmed: true}), false);
+  assert.equal(terminalCleanupConfirmed(Object.assign(Error(accepted.message), {code: accepted.code})), false);
+  assert.equal(terminalCleanupConfirmed(accepted), true);
+});
+
+test('legacy, wrong-id, cancel-id and handshake budget codes never become cleanup receipts', async t => {
+  for (const mode of ['legacy', 'wrong-id', 'cancel-id']) {
+    let admitted;
+    const ready = new Promise(resolve => { admitted = resolve; });
+    const f = await fixture(t, (socket, request) => {
+      if (request.operation.type === 'submit_conversation') {
+        reply(socket, request, 'admitted');
+        if (mode === 'cancel-id') { admitted(); return; }
+      }
+      reply(socket, mode === 'wrong-id' ? {...request, id: 'f'.repeat(32)} : request,
+        'error', {code: 'execution_budget_exceeded'});
+    }, mode === 'legacy' ? caps() : {...caps(), execution_error_version: 1},
+    mode === 'legacy' ? {} : {executionErrorVersion: 1});
+    await f.client.connect();
+    const controller = new AbortController();
+    const pending = f.client.submit(input(), {signal: controller.signal});
+    const rejected = assert.rejects(pending, error => {
+      assert.equal(error.code, 'invalid_response', mode);
+      assert.equal(terminalCleanupConfirmed(error), false, mode);
+      return true;
+    });
+    if (mode === 'cancel-id') { await ready; controller.abort(); }
+    await rejected;
+  }
+  // Pure dispatch guard at the handshake boundary; no synthetic execution claim.
+  const client = new PrivateConversation('/fixture/core.sock', {executionErrorVersion: 1});
+  client.state = 'connecting'; client.handshake = {id: 'a'.repeat(32)};
+  assert.throws(() => client._response({version: 1, id: client.handshake.id, event: 'error',
+    code: 'execution_budget_exceeded'}), error => {
+    assert.equal(error.code, 'invalid_response');
+    assert.equal(terminalCleanupConfirmed(error), false);
+    return true;
+  });
+});
+
 test('negotiated greedy requests require matching result evidence and cannot silently use a legacy core', async t => {
   const model = 'qwen3-0.6b-v1';
   const negotiated = { ...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'] };

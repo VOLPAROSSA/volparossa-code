@@ -47,7 +47,7 @@ class Contracts(unittest.TestCase):
 
     def test_profiles_are_closed_and_default_resources_are_unchanged(self):
         self.assertEqual(TRIAL.trial_profile(), dict(model_profile='qwen3-0.6b-v1',
-            core_revision='845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3', guest_memory_mib=6144,
+            core_revision='6a517b576baa17e7329661ee0476d1848081d114', guest_memory_mib=6144,
             core_memory_bytes=5 * TRIAL.GIB, qemu_memory_bytes=7 * TRIAL.GIB,
             host_available_bytes=8 * TRIAL.GIB, provision_budget_bytes=5 * TRIAL.GIB,
             scratch_gib=18, memory_failure='host_available_memory_below_8GiB'))
@@ -57,7 +57,10 @@ class Contracts(unittest.TestCase):
 
     def test_larger_profile_is_separate_and_requires_a_real_pin(self):
         self.assertRegex(TRIAL.LARGE_CORE, r'^[0-9a-f]{40}$')
-        self.assertNotEqual(TRIAL.LARGE_CORE, TRIAL.CORE)
+        # One reviewed core supports both profiles and the new negotiated error
+        # contract. Separate models/resources do not require artificial source forks.
+        self.assertEqual(TRIAL.LARGE_CORE, '6a517b576baa17e7329661ee0476d1848081d114')
+        self.assertNotEqual(TRIAL.LARGE_MODEL, TRIAL.MODEL)
         with patch.object(TRIAL, 'LARGE_CORE', None):
             with self.assertRaisesRegex(ValueError, 'larger_core_not_pinned'):
                 TRIAL.trial_profile(TRIAL.LARGE_MODEL)

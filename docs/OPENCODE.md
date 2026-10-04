@@ -75,6 +75,12 @@ admission. Model quality and useful execution still require real-model evidence.
 
 Before starting OpenCode, the owner validates the complete core capability reply,
 including template, limits, private-local scope and negotiated `greedy_v1` policy.
+Current native sessions also require `execution_error_version: 1`; an older core
+without that capability is refused before starting the runtime. Both native smoke
+profiles pin core `6a517b576baa17e7329661ee0476d1848081d114` for this contract,
+including the preserved main integrations and reviewed source-quality fixes.
+Legacy Q&A and conversation clients that do not opt in remain unchanged.
+
 That one model identity binds the native catalog, all agent roles, provider,
 task/session checks and trial receipt. Each provider request checks the core again;
 a different profile or incompatible result is refused, not silently substituted.
@@ -112,13 +118,17 @@ for core cleanup before returning SDK-compatible SSE or JSON; this is not
 token-by-token model streaming. Exhaustion remains `length`, not successful `stop`.
 Cleanup-confirmed invalid/truncated output or an unmet tool choice returns a
 terminal HTTP 422, so the pinned SDK and OpenCode do not blindly regenerate that
-unusable turn. Busy/execution/transport availability and uncertain cleanup remain
-separate failures; this change does not make an incomplete answer usable.
+unusable turn. The negotiated `execution_budget_exceeded` response also maps to
+422, but only for the matching admitted task after confirmed core cleanup. It
+does not claim a completed model response. Busy, other execution/transport
+failures and uncertain cleanup remain separate; this change does not make an
+incomplete answer usable.
 An already reported, known terminal task failure is separate from runtime cleanup:
 the task still fails, while a confirmed session/provider/process shutdown can
 succeed. Unknown/protocol errors and any unconfirmed cleanup still fail closed.
 The provider also counts cleanup for a correlated, admitted task ending with
-the core's terminal `execution_failed` or `cancelled` response, or a valid result
+the core's terminal `execution_failed`, `cancelled` or negotiated
+`execution_budget_exceeded` response, or a valid result
 that races local cancellation. These remain failed requests, not model results.
 The receipt is retained per rejection inside the checked transport; an error code
 alone, admission alone, a cancellation acknowledgement or a disconnect cannot
@@ -458,9 +468,31 @@ missing/conflicting result evidence is an error, not a sampled fallback.
 An older ordinary conversation client can still use its unchanged handshake;
 omitting the policy retains the core's previous profile behavior.
 
-This corrects a real contract mismatch: the earlier adapter accepted zero
-temperature while the Qwen worker used its default sampled 0.7/0.8/20 profile.
-The fixed worker passes `do_sample:false,num_beams:1`; model, token budgets,
+An actual-runtime regression exposed an additional configuration mismatch:
+pinned OpenCode omits temperature unless the custom model advertises that
+capability. Setting only `agent.temperature:0` did not select greedy execution.
+Both supported profiles now explicitly set model `temperature:true`, retaining
+the existing zero setting on every coding role. Prompts, model identities,
+permissions and resource budgets are unchanged; this corrects which generation
+policy actually reaches the core, rather than proving better model quality.
+
+The pinned native runtime has now been exercised with the production launcher
+and provider but **synthetic** core/model replies. Each of `invalid_output`,
+`wire_truncated` and `execution_budget_exceeded` made exactly one coding request,
+with observed `greedy_v1`, no native retry, no approval and confirmed session
+cleanup; the disposable project remained unchanged. The terminal budget error
+was not counted as a completed or incomplete model result. The synthetic result
+fixture mirrors only the policy actually present on the request; negotiated
+support alone is not a selected policy. This proves runtime policy forwarding
+and terminal-error behavior, not actual inference or private peer execution.
+Local report `native-errors-budget-greedy-df481-20261004.json` was captured on
+the explicitly modified `df481f3f` candidate; SHA-256:
+`a08f26ab2c61b2653949dadf06f45b9402066383ee651d573a5b14f9623e3786`.
+Earlier real-model failures retain their original sources and outcomes.
+
+An earlier adapter correction addressed a separate contract mismatch: it accepted
+zero temperature while the Qwen worker used its sampled 0.7/0.8/20 profile.
+The worker's greedy path passes `do_sample:false,num_beams:1`; model, token budgets,
 tool permissions, task and independent success checks remain unchanged.
 Protocol/backend-double checks verify the wiring, not model quality. The earlier
 [run `37066003771`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37066003771)
@@ -473,12 +505,24 @@ stop, and greedy generation does not guarantee a completed coding task.
 `scripts/smoke_opencode_inference.py` prepares one explicit disposable Debian 13
 KVM trial; it does not install or run the model on the development host. Its
 `pack` mode captures each Code source/runtime file by hash and the exact core
-archive selected by its explicit model profile. The default Qwen3-0.6B profile
-retains core `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`; the separate
-`qwen3-4b-instruct-2507-v1` candidate binds core
-`1297f8f1a5d163d802efd066c51a950b95588fa5`. This includes the bounded
-provisioning-timeout recovery from core `3aa0e2d0` and existing closed worker
-diagnostics. The previous `37209881216` attempt remains failed before model
+archive selected by its explicit model profile. Both current profiles pin core
+`6a517b576baa17e7329661ee0476d1848081d114`, while retaining their different
+models and resource profiles. Historical 0.6B trials used `845cc84d`; the last
+4B trial used `1297f8f1a5d163d802efd066c51a950b95588fa5`, including the bounded
+provisioning-timeout recovery from `3aa0e2d0`. Neither those historical outcomes
+nor the synthetic native-runtime probe proves the current real-model candidate.
+
+The earlier `a5246942` candidate's
+[Quality run `37225595367`](https://github.com/VOLPAROSSA/volparossa/actions/runs/37225595367)
+remains **failed**: strict Clippy rejected two 103-line diagnostic functions.
+No native model trial was dispatched for that pair. The follow-up extracts the
+existing snapshot parser and moves byte-identical Python test assertions into a
+constant, without changing validation, model behavior, resources or acceptance
+criteria. Its source checks are pending; this is not a rerun or a passing
+real-model result. Original job `111504476222` log SHA-256:
+`1ef3aca56b4052b9b56e2f9a469543e07cfdb1718d5a8706750c286f40f6d41c`.
+
+The previous `37209881216` attempt remains failed before model
 execution. [Trial `37217032474`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37217032474)
 on the previous core `f25352df` completed the pinned 4B provisioning and returned one actual model result,
 but the native task failed at `invalid_output` after 152,995 ms. No tools, edits
