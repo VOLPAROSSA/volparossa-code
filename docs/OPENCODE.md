@@ -230,6 +230,26 @@ and closed receipts are staged or exported. Like the private trial, dispatch
 requires the workflow to be registered on the default branch first; the actual
 run must select the reviewed integration commit, not substitute `main`.
 
+The first actual public trial, run `37213737334`, **failed overall**. Its original
+receipts show real Qwen0.6B peer execution, a complete raw replacement, the
+owner-approved single-file edit and passing unchanged local tests. The parent
+route-evidence gate rejected application traffic to an unselected provider:
+its capture combined provider discovery with task execution, and its generic
+control-path mapping did not distinguish the two discovery contacts from the
+single selected executor. Those packet counts alone cannot retrospectively prove
+that all unselected traffic was discovery. Cleanup completed with zero owned
+objects and matching before/after guest network hashes; the failed run remains
+failed, not a complete route/privacy proof.
+
+The reviewed core fixture now separates those phases with a bounded, byte-exact
+Unix control observer. It holds the genuine discovery response while the parent
+checks TCP teardown and drains the discovery capture, then releases that same
+response into a separate task capture. Physical discovery contacts and the
+selected executor have separate bindings; task traffic to an unselected provider
+is still rejected. The immutable driver, real model, question, original tests,
+deadlines and success criteria remain unchanged. Passing fixture/socket checks
+is not yet evidence that this revised live trial passes.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 
