@@ -703,11 +703,11 @@ receipts are exported. The existing pinned Debian workspace-tool path is
 unchanged. Focused offline contracts and shell/syntax checks pass; hosted
 admission has been exercised, but actual coding completion remains unproved.
 
-For pre-merge testing, the identical manual workflow file must first exist on
-the default branch. Dispatch it on `feature/opencode-integration`, supplying
-that exact reviewed commit as `expected_code_sha`; dispatching an unprepared
-main branch cannot pass the source guard and must not install tools or launch
-a guest. There is no automatic inference run on push or pull request.
+For pre-merge testing, the manual workflow must be registered on the default
+branch. Dispatch the reviewed candidate branch and supply its exact commit as
+`expected_code_sha`; the [selected ref identifies the workflow version](https://cli.github.com/manual/gh_workflow_run).
+An unprepared branch cannot pass the source guard and must not install tools or
+launch a guest. There is no automatic inference run on push or pull request.
 
 ### Explicit native CPU candidate
 
@@ -744,9 +744,13 @@ request budget, coding task and independent tests are unchanged. This is not
 quantization, a smaller model, confidential remote execution or a new app-level
 peer scheduler.
 
-Forty-three targeted Python fixture checks and forty-seven Node consumer/session
+Forty-five targeted Python fixture checks and forty-seven Node consumer/session
 checks pass. They cover exact source/backend/artifact bindings, negative cases,
-unchanged defaults, measured resource limits and cleanup contracts. No actual
+unchanged defaults, measured resource limits and cleanup contracts. The actual
+build-shell selector now forwards the explicit backend choice too; an inert
+shell-prefix regression reproduces the previous mismatch before any profile,
+privileged operation or build. Source-only CI also covers stacked pull requests,
+with unchanged checks and permissions. No actual
 conversion, native model inference or successful coding loop has yet been proved.
 The core's retained full upstream sanitizer failure on a disallowed quantized
 path also remains explicit; separate BF16/F32 checks do not erase that failure.

@@ -160,6 +160,68 @@ class Contracts(unittest.TestCase):
                 NATIVE.guest_build()
             process.assert_not_called()
 
+    def test_actual_build_shell_prefix_forwards_backend_before_any_profile_or_sudo(self):
+        script = (ROOT / 'scripts/opencode_ci_build.sh').read_text()
+        prefix, separator, _ = script.partition('profile="$core/tests/integration/native-coding-bwrap.apparmor"')
+        self.assertTrue(separator)
+        addition = ' --inference-backend "${INFERENCE_BACKEND:-torch}"'
+        self.assertEqual(prefix.count(addition), 1)
+        # Execute the real shell prefix and the real CLI selector. Only its
+        # hosted-machine guard is replaced; no build, profile, sudo or VM runs.
+        bridge = '''python3() {
+  command /usr/bin/python3 -B -c '
+import importlib.util, sys
+from pathlib import Path
+assert sys.argv[1] == "-B"
+path = Path(sys.argv[2]).resolve()
+spec = importlib.util.spec_from_file_location("inert_ci_prefix", path)
+value = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(value)
+value.guard = lambda: None
+sys.argv = [str(path), *sys.argv[3:]]
+value.main()
+' "$@"
+}
+git() {
+  test "$#" = 4 && test "$1" = -C && test "$3" = rev-parse && test "$4" = HEAD || return 99
+  printf '%s\\n' "$TEST_EXPECTED_CORE"
+}
+sudo() { return 99; }
+'''
+        def check(source, model=None, backend=None, core=TRIAL.CORE):
+            env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TEST_EXPECTED_CORE': core}
+            if model is not None:
+                env['MODEL_PROFILE'] = model
+            if backend is not None:
+                env['INFERENCE_BACKEND'] = backend
+            return subprocess.run(['/bin/bash', '-c', bridge + source + '\nprintf "PREFIX_ACCEPTED\\n"\n'],
+                                  cwd=ROOT, env=env, capture_output=True, text=True, timeout=10)
+        for model, backend, core in ((None, None, TRIAL.CORE),
+                                     (TRIAL.LARGE_MODEL, 'torch', TRIAL.LARGE_CORE),
+                                     (TRIAL.LARGE_MODEL, KIND, TRIAL.NATIVE_CORE)):
+            result = check(prefix, model, backend, core)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, 'PREFIX_ACCEPTED\n')
+        # The original prefix genuinely fails the native checkout, then the
+        # corrected same prefix passes above; failures never reach profile work.
+        for source, model, backend, core in (
+                (prefix.replace(addition, ''), TRIAL.LARGE_MODEL, KIND, TRIAL.NATIVE_CORE),
+                (prefix, TRIAL.LARGE_MODEL, KIND, TRIAL.LARGE_CORE),
+                (prefix, TRIAL.MODEL, KIND, TRIAL.NATIVE_CORE),
+                (prefix, TRIAL.LARGE_MODEL, 'unknown', TRIAL.NATIVE_CORE)):
+            result = check(source, model, backend, core)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('PREFIX_ACCEPTED', result.stdout)
+
+    def test_stacked_source_workflow_keeps_original_jobs_and_only_removes_pr_filter(self):
+        source = (ROOT / '.github/workflows/source-checks.yml').read_text()
+        self.assertIn('  push:\n    branches: [main]\n  pull_request:\n', source)
+        self.assertEqual(source.count('branches: [main]'), 1)
+        self.assertNotIn('feature/', source)
+        self.assertIn('permissions:\n  contents: read\n', source)
+        self.assertIn('timeout-minutes: 5', source)
+        self.assertIn("python3 -B -m unittest discover -s tests -p 'test_*opencode*.py'", source)
+
     def test_acquisition_and_build_use_exact_source_in_guest_not_prebuilt_payload(self):
         source = inspect.getsource(NATIVE.guest_build)
         for text in ("'fetch', '--depth=1', '--no-tags', 'origin', SOURCE", 'builder.verify_source(source)',
