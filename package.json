@@ -35,6 +35,10 @@
         "volparossaCode.publicSocket": {
           "type": "string", "default": "", "scope": "machine",
           "description": "Explicit same-owner public-serve socket. Only an exactly enrolled public question/excerpt may be delegated; private history never falls back here. The raw socket is not mounted into OpenCode."
+        },
+        "volparossaCode.ownerVerification": {
+          "type": "object", "default": {}, "scope": "machine",
+          "description": "Optional owner-selected coding check from user settings only: executable (/usr/bin), args, timeoutMs (1-60000) and maxRounds (1-16). Each invocation requires approval and runs without network against a read-only workspace. Failed output may continue the same task; a pass is not general task correctness. See docs/OWNER_VERIFICATION.md."
         }
       }
     }

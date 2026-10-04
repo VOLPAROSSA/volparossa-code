@@ -15,6 +15,38 @@ runtime error or incomplete native response does **not** cause another turn.
 The terminal native session is deleted once. Owner-side check cancellation and
 runtime cleanup must be joined before the caller reports completion.
 
+## Use from the editor
+
+After preparing the explicit OpenCode runtime and core conversation service, set
+the check in your **user settings**, not the project's `.vscode/settings.json`:
+
+```json
+{
+  "volparossaCode.ownerVerification": {
+    "executable": "/usr/bin/python3",
+    "args": ["-B", "-m", "unittest", "-v"],
+    "timeoutMs": 15000,
+    "maxRounds": 3
+  }
+}
+```
+
+Choose the actual command for your project; every field is required. Opening a
+workspace runs nothing. Both coding commands capture this fixed plan before
+OpenCode starts and show it in the startup confirmation. Each check then asks
+**Run check once**, independently of approvals for model-proposed tools. The
+per-check time limit (1–60000 ms) includes waiting for this approval; a late
+answer cannot revive a timed-out or cancelled check. Cancelling the progress
+notification cancels the task and its check. With no plan, or an empty `{}`, the
+existing single-turn behavior is unchanged. Workspace and folder settings
+cannot select or replace the check, and invalid user settings stop startup.
+
+The result document reports the selected check's status, number of checks and
+continuations only. Failed output may inform the same local model session; it
+does not enlarge the explicitly enrolled public snapshot or authorize sharing
+private test output. The current local executor is not completion of protected
+private network cooperation.
+
 ## Use from the owner CLI
 
 Create a mode-`0600` JSON plan **outside** the model-writable workspace, containing
@@ -100,9 +132,8 @@ Only `failed` can continue; `passed` and `unavailable` terminate. Native summari
 must match completed owner receipts, and late receipts cannot revive a cancelled
 operation. Existing callers with no verifier keep their previous one-turn API.
 
-The owner CLI is wired end to end. The editor extension does **not yet** expose a
-trusted verifier-selection/approval UI, so its existing route remains unchanged;
-merely setting a model prompt does not enable verification. The real coding
+The owner CLI and editor coding commands both wire the owner check into this
+API. Merely setting a model prompt does not enable verification. The real coding
 trial now selects this verifier before runtime startup and checks the original
 test-file identity before each execution. Its initial prompt, model, total time
 budget, native approval quota and final independent acceptance check are unchanged.

@@ -65,11 +65,13 @@ test('manifest declares trust and machine scope without telemetry, accounts or a
   assert.equal(value.contributes.configuration.properties['volparossaCode.privateSocket'].scope, 'machine');
   assert.equal(value.contributes.configuration.properties['volparossaCode.openCodeRuntime'].scope, 'machine');
   assert.equal(value.contributes.configuration.properties['volparossaCode.publicSocket'].scope, 'machine');
+  assert.equal(value.contributes.configuration.properties['volparossaCode.ownerVerification'].scope, 'machine');
+  assert.deepEqual(value.contributes.configuration.properties['volparossaCode.ownerVerification'].default, {});
   assert.equal(value.contributes.configuration.properties['volparossaCode.nativeRuntime'], undefined);
   assert.equal(value.dependencies, undefined); assert.equal(value.activationEvents, undefined);
 });
 
-function codingFixture({delegation} = {}) {
+function codingFixture({delegation, verification} = {}) {
   const events = [];
   const native = {
     Runtime: {async start(config, options) {
@@ -88,7 +90,8 @@ function codingFixture({delegation} = {}) {
   const f = fixture({native});
   f.api.workspace.workspaceFolders = [{name: 'project', uri: {scheme: 'file', fsPath: '/projects/selected'}}];
   f.api.workspace.getConfiguration = () => ({inspect: key => ({
-    globalValue: key === 'privateSocket' ? '/run/owner/conversation.sock' : {version: 1, opencode: '/explicit/runtime'},
+    globalValue: key === 'ownerVerification' ? verification :
+      key === 'privateSocket' ? '/run/owner/conversation.sock' : {version: 1, opencode: '/explicit/runtime'},
     workspaceValue: key === 'privateSocket' ? '/tmp/untrusted.sock' : {opencode: '/project/untrusted-runtime'}
   })});
   f.api.window.showInformationMessage = async (_text, _options, action) => action;
@@ -111,6 +114,124 @@ test('explicit coding command launches only user-selected inputs, asks one-shot 
   assert.equal(f.documents[0].language, 'plaintext');
   assert.match(f.documents[0].content, /not independently verified/);
   assert.match(f.documents[0].content, /Generated reply/); assert.deepEqual(f.errors, []);
+});
+
+const ownerCheck = () => ({executable: '/usr/bin/python3', args: ['-B', '-m', 'unittest'],
+  timeoutMs: 15000, maxRounds: 3});
+function checkedCodingFixture() {
+  const config = ownerCheck(), f = codingFixture({verification: config});
+  let captured;
+  f.native.createWorkspaceVerifier = options => {
+    captured = options; f.events.push(['capture-check']);
+    return async ({round, signal}) => {
+      assert.equal(signal.aborted, false);
+      const allowed = await options.approve({type: 'workspace_verifier', workspace: options.workspace,
+        executable: options.executable, args: options.args, round, timeoutMs: options.timeoutMs});
+      return allowed ? {status: round === 1 ? 'failed' : 'passed', feedback: 'private check output'}
+        : {status: 'unavailable', feedback: 'workspace_verifier_not_authorized'};
+    };
+  };
+  f.native.Runtime.start = async (_runtime, options) => {
+    f.events.push(['launch', options]);
+    // Mutation after capture must not change the selected check.
+    config.executable = '/usr/bin/false'; config.args.push('changed-by-model'); config.maxRounds = 16;
+    return {async close() { f.events.push(['cleanup']); }, async run(_prompt, options) {
+      f.events.push(['task', options]);
+      assert.equal(options.maxVerificationRounds, 3);
+      let checks = 0, receipt;
+      do {
+        receipt = await options.verify({round: ++checks, remainingMs: 20000, signal: options.signal});
+      } while (receipt.status === 'failed' && checks < options.maxVerificationRounds);
+      return {text: 'Generated reply', commands: 0, taskVerified: false,
+        verification: {status: receipt.status, checks, continuations: checks - 1}};
+    }, async stop() { f.events.push(['stop']); }};
+  };
+  return {...f, captured: () => captured};
+}
+
+test('editor captures a fixed user check before startup and asks separately for every round', async () => {
+  const f = checkedCodingFixture();
+  assert.deepEqual(f.events, []);
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.errors, []);
+  assert.deepEqual(f.events[0], ['capture-check']);
+  assert.equal(f.captured().workspace, '/projects/selected');
+  assert.equal(f.captured().executable, '/usr/bin/python3');
+  assert.deepEqual(f.captured().args, ['-B', '-m', 'unittest']);
+  assert.equal(f.captured().timeoutMs, 15000);
+  const approvals = f.events.filter(e => e[0] === 'approval');
+  assert.equal(approvals.length, 2);
+  for (let i = 0; i < approvals.length; i++) {
+    assert.match(approvals[i][1], new RegExp(`check ${i + 1}/3 once`));
+    assert(approvals[i][1].includes(JSON.stringify(['/usr/bin/python3', '-B', '-m', 'unittest'])));
+    assert.equal(approvals[i][2].modal, true);
+  }
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
+  assert.match(f.documents[0].content, /Owner-selected check: passed; checks: 2; continuations: 1/);
+  assert.match(f.documents[0].content, /not general correctness/);
+  assert(!JSON.stringify(f.documents).includes('private check output'));
+});
+
+test('declined check is unavailable and startup consent is not check execution authority', async () => {
+  const f = checkedCodingFixture();
+  f.api.window.showWarningMessage = async () => undefined;
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.errors, []);
+  assert.match(f.documents[0].content, /Owner-selected check: unavailable; checks: 1; continuations: 0/);
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
+});
+
+test('workspace check settings are ignored and an invalid user plan never starts a runtime', async () => {
+  const f = codingFixture();
+  const inspect = f.api.workspace.getConfiguration().inspect;
+  f.api.workspace.getConfiguration = () => ({inspect: key => key === 'ownerVerification'
+    ? {workspaceValue: ownerCheck(), workspaceFolderValue: ownerCheck(), defaultValue: ownerCheck()} : inspect(key)});
+  f.native.createWorkspaceVerifier = () => assert.fail('workspace must not select the check');
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.errors, []);
+  assert(!f.documents[0].content.includes('Owner-selected check:'));
+  const bad = codingFixture({verification: {...ownerCheck(), executable: '/project/model-chosen'}});
+  await bad.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(bad.events, []);
+  assert.match(bad.errors[0], /^Configure the owner verification/);
+});
+
+test('declined startup never prepares an owner verifier or a native runtime', async () => {
+  const f = checkedCodingFixture();
+  f.api.window.showInformationMessage = async text => {
+    assert.match(text, /Owner-selected check:/);
+    assert.match(text, /including approval/);
+    return undefined;
+  };
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.events, []); assert.deepEqual(f.documents, []);
+});
+
+test('lost trust or deactivation while approving a check grants no authority and still joins cleanup', async () => {
+  for (const invalidate of [f => { f.api.workspace.isTrusted = false; },
+    f => { f.context.subscriptions.at(-1).dispose(); }]) {
+    const f = checkedCodingFixture();
+    f.api.window.showWarningMessage = async (_text, _options, action) => { invalidate(f); return action; };
+    await f.commands.get('volparossaCode.codingTask')();
+    assert.equal(f.errors.length, 1); assert.deepEqual(f.documents, []);
+    assert.deepEqual(f.events.at(-1), ['cleanup']);
+  }
+});
+
+test('progress cancellation reaches owner checks through the original task signal', async () => {
+  const f = checkedCodingFixture();
+  f.api.window.withProgress = async (_options, action) => action({}, {
+    isCancellationRequested: true, onCancellationRequested() { return {dispose() {}}; }
+  });
+  f.native.createWorkspaceVerifier = () => async ({signal}) => {
+    assert.equal(signal.aborted, true);
+    return {status: 'unavailable', feedback: 'workspace_verifier_cancelled'};
+  };
+  await f.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(f.errors, []);
+  assert(!f.events.some(e => e[0] === 'approval'));
+  assert.match(f.documents[0].content, /Owner-selected check: unavailable/);
+  assert.deepEqual(f.events.at(-1), ['cleanup']);
 });
 
 test('terminal public responses are not presented as complete peer answers', async () => {

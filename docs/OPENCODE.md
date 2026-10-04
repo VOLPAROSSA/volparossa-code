@@ -55,6 +55,11 @@ profiles below; the editor does not choose an arbitrary model or download one.
 Python 3, bubblewrap and system runtime libraries must already be available.
 No existing OpenCode/Codex profile is modified.
 
+An optional user-level `volparossaCode.ownerVerification` plan adds an
+owner-selected check after each completed coding turn. Each invocation requires
+separate approval; an actual failed check can continue the same session within
+the original task budget. See [editor setup and check limitations](OWNER_VERIFICATION.md#use-from-the-editor).
+
 ### Core-selected coding profiles
 
 - `qwen3-0.6b-v1`: the unchanged default; native template
