@@ -35,8 +35,8 @@ LARGE_MODEL = 'qwen3-4b-instruct-2507-v1'
 LARGE_CORE = '6a517b576baa17e7329661ee0476d1848081d114'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
-# Separately reviewed native converter dependency and process-group cleanup.
-NATIVE_CORE = 'f7e2c3b9c2abd710682a2ec51d4b5dfbc46b9d8f'
+# Native converter/process cleanup plus the reviewed unique CLI argument group.
+NATIVE_CORE = '7308371b20ced0504662178beb0e46586cfc9d2d'
 NATIVE_SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'

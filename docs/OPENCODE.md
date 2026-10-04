@@ -723,10 +723,20 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`f7e2c3b9c2abd710682a2ec51d4b5dfbc46b9d8f` and llama.cpp source
+`7308371b20ced0504662178beb0e46586cfc9d2d` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
+
+The previous candidate core `f7e2c3b9c2abd710682a2ec51d4b5dfbc46b9d8f`
+failed [source Quality run 37235233676](https://github.com/VOLPAROSSA/volparossa/actions/runs/37235233676)
+in four full command-tree tests because two flattened Clap argument groups
+shared the name `Options`. No native inference trial was dispatched. The new
+pin gives the native options a unique group ID; targeted command-tree and
+absent/complete/incomplete flag-pair regressions pass. That fixes the reproduced
+CLI construction error, not the earlier model-forward stall. The original
+failed source run remains failure evidence; the new source still requires its
+own passing CI before any trial.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
