@@ -3,7 +3,8 @@
 """Explicit hosted-CI plumbing; never a model, task, or VM implementation.
 
 Ubuntu packages are an explicitly different host-tool profile, not the pinned
-Debian workspace-tool receipt. Core/OpenCode/Node/model/guest bounds are unchanged.
+Debian workspace-tool receipt. Model/resource choices are explicit closed profiles;
+the original 0.6B profile remains the default.
 """
 import argparse
 import hashlib
@@ -20,9 +21,10 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
-CORE = '845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3'
 BASELINE = 'afdb28495cacd74de3bd8467491bdbb9a8b50949'
 PROFILE = 'github-ubuntu-24.04'
+MODEL = 'qwen3-0.6b-v1'
+MODEL_PROFILES = (MODEL, 'qwen3-4b-instruct-2507-v1')
 TOOLS = {'qemu-system-x86_64': ('/usr/bin/qemu-system-x86_64', 'qemu-system-x86'),
          'qemu-img': ('/usr/bin/qemu-img', 'qemu-utils'),
          'cloud-localds': ('/usr/bin/cloud-localds', 'cloud-image-utils'),
@@ -73,19 +75,25 @@ def guard():
             and os.uname().machine == 'x86_64', 'ubuntu_24_amd64_only')
 
 
-def exact_sources(core, expected):
+def trial_profile(model_profile=MODEL):
+    trial = module(ROOT / 'scripts/smoke_opencode_inference.py', 'ci_trial_profile')
+    return trial.trial_profile(model_profile)
+
+
+def exact_sources(core, expected, model_profile=MODEL):
     guard()
+    profile = trial_profile(model_profile)
     require(re.fullmatch('[0-9a-f]{40}', expected or '')
             and expected == os.environ.get('GITHUB_SHA'), 'exact_dispatched_source')
     require(core.resolve(strict=True) == core and core == BUILD / 'ci-core', 'core_checkout_scope')
-    for repo, sha in ((ROOT, expected), (core, CORE)):
+    for repo, sha in ((ROOT, expected), (core, profile['core_revision'])):
         require(run(['git', '-C', repo, 'rev-parse', 'HEAD'], text=True).stdout.strip() == sha
                 and not run(['git', '-C', repo, 'status', '--porcelain'], text=True).stdout,
                 'clean_exact_checkout')
     run(['git', '-C', ROOT, 'merge-base', '--is-ancestor', BASELINE, expected])
     return {'version': 1, 'code_revision': expected, 'code_baseline': BASELINE,
             'code_tree': run(['git', '-C', ROOT, 'rev-parse', 'HEAD^{tree}'], text=True).stdout.strip(),
-            'core_revision': CORE, 'code_checkout_clean': True,
+            'core_revision': profile['core_revision'], 'model_profile': model_profile, 'code_checkout_clean': True,
             'host_tools_profile': PROFILE, 'actual_inference_proven': False}
 
 
@@ -109,10 +117,11 @@ def verify_host_tools(tools):
             'source_built_host_tools': False, 'debian_workspace_pins_claimed': False}
 
 
-def preflight():
+def preflight(model_profile=MODEL):
     tools = verify_host_tools(Path('/usr'))
     trial = module(ROOT / 'scripts/smoke_opencode_inference.py', 'ci_trial_preflight')
-    require(trial.available_memory() >= 8 * trial.GIB, 'host_available_memory_below_8GiB')
+    profile = trial.trial_profile(model_profile)
+    require(trial.available_memory() >= profile['host_available_bytes'], profile['memory_failure'])
     name = 'volparossa-opencode-preflight-' + uuid.uuid4().hex[:12] + '.service'
     # The service itself, not merely the invoking shell, proves KVM access and
     # effective limits. No VM/model is started by this short admission probe.
@@ -124,15 +133,15 @@ with open('/dev/kvm', 'rb+', buffering=0) as kvm:
 group = Path('/proc/self/cgroup').read_text().strip().split(':', 2)[2]
 assert group.startswith('/user.slice/') and group.endswith('/' + __import__('sys').argv[1])
 base = Path('/sys/fs/cgroup' + group)
-assert int((base / 'memory.max').read_text()) == 7 * 1024**3
+assert int((base / 'memory.max').read_text()) == int(__import__('sys').argv[2])
 assert int((base / 'memory.swap.max').read_text()) == 0
 '''
     try:
         run(['systemd-run', '--user', '--quiet', '--wait', '--pipe', '--unit=' + name,
-             '--property=Type=exec', '--property=MemoryMax=' + str(7 * 1024**3),
+             '--property=Type=exec', '--property=MemoryMax=' + str(profile['qemu_memory_bytes']),
              '--property=MemorySwapMax=0', '--property=RuntimeMaxSec=15',
              '--property=TimeoutStopSec=5', '--property=KillMode=control-group',
-             '/usr/bin/python3', '-I', '-c', probe, name], timeout=45)
+             '/usr/bin/python3', '-I', '-c', probe, name, str(profile['qemu_memory_bytes'])], timeout=45)
     finally:
         stopped = subprocess.run(['systemctl', '--user', 'stop', name], capture_output=True, timeout=15)
         require(stopped.returncode in (0, 5), 'preflight_stop')
@@ -145,7 +154,8 @@ assert int((base / 'memory.swap.max').read_text()) == 0
         subprocess.run(['systemctl', '--user', 'reset-failed', name], capture_output=True, timeout=15)
     record(BUILD / 'ci-host-tools.json', tools)
     record(BUILD / 'ci-preflight.json', {'version': 1, 'passed': True, 'actual_kvm_api': 12,
-        'actual_user_cgroup': True, 'memory_max': 7 * 1024**3, 'swap_max': 0,
+        'actual_user_cgroup': True, 'model_profile': model_profile,
+        'memory_max': profile['qemu_memory_bytes'], 'host_available_required': profile['host_available_bytes'], 'swap_max': 0,
         'preflight_service_joined': True, 'vm_started': False})
 
 
@@ -178,9 +188,11 @@ assert 'volparossa_ci_native_child' in Path('/proc/self/attr/current').read_text
     record(BUILD / 'ci-build.json', value)
 
 
-def assets(core):
+def assets(core, model_profile=MODEL):
     guard()
-    require(run(['git', '-C', core, 'rev-parse', 'HEAD'], text=True).stdout.strip() == CORE, 'exact_core')
+    profile = trial_profile(model_profile)
+    require(run(['git', '-C', core, 'rev-parse', 'HEAD'], text=True).stdout.strip()
+            == profile['core_revision'], 'exact_core')
     private = module(core / 'tests/integration/agent-private-conversation.py', 'ci_node_assets')
     pin = private.pins()['runtime']
     private.fetch(pin['url'], BUILD / 'ci-node.tar.xz', pin)
@@ -188,15 +200,18 @@ def assets(core):
         private.extract_node(archive, BUILD / 'ci-node', pin['files'])
 
 
-def capture():
+def capture(model_profile=MODEL):
     guard()
     trial = module(ROOT / 'scripts/smoke_opencode_inference.py', 'ci_trial_inputs')
+    profile = trial.trial_profile(model_profile)
     path = BUILD / 'ci-inputs.tar.gz'
-    manifest = trial.validate_bundle(path)
+    manifest = trial.validate_bundle(path, model_profile)
     source = json.loads((BUILD / 'ci-source.json').read_text())
     require(source['code_revision'] == manifest['code_base_revision'] == os.environ['GITHUB_SHA'], 'input_source')
+    require(source['core_revision'] == manifest['core_revision'] == profile['core_revision']
+            and source['model_profile'] == manifest['model_profile'] == model_profile, 'input_profile')
     record(BUILD / 'ci-inputs.json', {'version': 1, 'bundle_sha256': digest(path),
-           'code_revision': source['code_revision'], 'core_revision': CORE,
+           'code_revision': source['code_revision'], 'core_revision': profile['core_revision'], 'model_profile': model_profile,
            'code_checkout_clean': True, 'input_manifest': manifest})
 
 
@@ -221,18 +236,26 @@ def export():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('guard', 'source', 'preflight', 'build', 'assets', 'capture', 'export'))
+    parser.add_argument('mode', choices=('guard', 'select', 'source', 'preflight', 'build', 'assets', 'capture', 'export'))
     parser.add_argument('--core', type=Path)
     parser.add_argument('--expected-code')
+    parser.add_argument('--model-profile', choices=MODEL_PROFILES, default=MODEL)
     args = parser.parse_args()
     if args.mode == 'guard':
         guard()
+    elif args.mode == 'select':
+        guard()
+        print('core_revision=' + trial_profile(args.model_profile)['core_revision'])
     elif args.mode == 'source':
-        record(BUILD / 'ci-source.json', exact_sources(args.core, args.expected_code))
+        record(BUILD / 'ci-source.json', exact_sources(args.core, args.expected_code, args.model_profile))
     elif args.mode == 'assets':
-        assets(args.core)
+        assets(args.core, args.model_profile)
+    elif args.mode == 'preflight':
+        preflight(args.model_profile)
+    elif args.mode == 'capture':
+        capture(args.model_profile)
     else:
-        {'preflight': preflight, 'build': source_build, 'capture': capture, 'export': export}[args.mode]()
+        {'build': source_build, 'export': export}[args.mode]()
 
 
 if __name__ == '__main__':
@@ -242,8 +265,10 @@ if __name__ == '__main__':
         reasons = {'hosted_ci_only', 'ubuntu_24_amd64_only', 'exact_dispatched_source', 'core_checkout_scope',
                    'clean_exact_checkout', 'ci_system_tools_only', 'official_root_owned_tool',
                    'official_package_owner', 'package_integrity', 'package_version',
-                   'host_available_memory_below_8GiB', 'preflight_stop', 'preflight_observation',
-                   'preflight_cleanup', 'exact_core', 'input_source', 'closed_receipt_file', 'closed_receipt_object'}
+                   'host_available_memory_below_8GiB', 'host_available_memory_below_14GiB',
+                   'preflight_stop', 'preflight_observation', 'unknown_model_profile', 'larger_core_not_pinned',
+                   'preflight_cleanup', 'exact_core', 'input_source', 'input_profile',
+                   'closed_receipt_file', 'closed_receipt_object'}
         reason = error.args[0] if error.args and isinstance(error.args[0], str) else None
         print(json.dumps({'passed': False, 'failure': reason if reason in reasons else 'hosted_ci_stage_failed',
                           'subprocess_status': error.returncode if isinstance(error, subprocess.CalledProcessError) else None}))

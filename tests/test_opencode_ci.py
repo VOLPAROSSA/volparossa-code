@@ -40,7 +40,7 @@ class Contracts(unittest.TestCase):
     def test_hosted_memory_gate_precedes_any_service_or_vm(self):
         with patch.object(CI, 'verify_host_tools', return_value={}), \
                 patch.object(CI, 'module', return_value=SimpleNamespace(GIB=TRIAL.GIB,
-                    available_memory=lambda: 8 * TRIAL.GIB - 1)), patch.object(CI, 'run') as process:
+                    trial_profile=TRIAL.trial_profile, available_memory=lambda: 8 * TRIAL.GIB - 1)), patch.object(CI, 'run') as process:
             with self.assertRaisesRegex(ValueError, 'host_available_memory_below_8GiB'):
                 CI.preflight()
             process.assert_not_called()
@@ -56,7 +56,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.object(CI, 'BUILD', Path(tmp)), \
                 patch.object(CI, 'verify_host_tools', return_value={'profile': CI.PROFILE}), \
                 patch.object(CI, 'module', return_value=SimpleNamespace(GIB=TRIAL.GIB,
-                    available_memory=lambda: 8 * TRIAL.GIB)), patch.object(CI.subprocess, 'run', side_effect=process):
+                    trial_profile=TRIAL.trial_profile, available_memory=lambda: 8 * TRIAL.GIB)), patch.object(CI.subprocess, 'run', side_effect=process):
             CI.preflight()
             command = next(args for args in calls if args[0] == 'systemd-run')
             self.assertIn('--user', command)
@@ -66,6 +66,35 @@ class Contracts(unittest.TestCase):
             for bound in ('0xAE00', "'/user.slice/'", "'memory.max'", "'memory.swap.max'"):
                 self.assertIn(bound, probe)
             self.assertTrue(json.loads((Path(tmp) / 'ci-preflight.json').read_text())['preflight_service_joined'])
+
+    def test_larger_hosted_admission_uses_its_own_exact_bounds_and_no_swap(self):
+        with patch.object(TRIAL, 'LARGE_CORE', 'a' * 40), \
+                patch.object(CI, 'verify_host_tools', return_value={}), \
+                patch.object(CI, 'module', return_value=TRIAL), \
+                patch.object(TRIAL, 'available_memory', return_value=14 * TRIAL.GIB - 1), \
+                patch.object(CI, 'run') as process:
+            with self.assertRaisesRegex(ValueError, 'host_available_memory_below_14GiB'):
+                CI.preflight(TRIAL.LARGE_MODEL)
+            process.assert_not_called()
+        calls = []
+        def process(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, 'MainPID=0\nActiveState=inactive\n' if 'show' in args else '', '')
+        with tempfile.TemporaryDirectory() as tmp, patch.object(CI, 'BUILD', Path(tmp)), \
+                patch.object(TRIAL, 'LARGE_CORE', 'a' * 40), \
+                patch.object(CI, 'verify_host_tools', return_value={}), \
+                patch.object(CI, 'module', return_value=TRIAL), \
+                patch.object(TRIAL, 'available_memory', return_value=14 * TRIAL.GIB), \
+                patch.object(CI.subprocess, 'run', side_effect=process):
+            CI.preflight(TRIAL.LARGE_MODEL)
+            command = next(args for args in calls if args[0] == 'systemd-run')
+            self.assertIn('--property=MemoryMax=' + str(13 * TRIAL.GIB), command)
+            self.assertIn('--property=MemorySwapMax=0', command)
+            self.assertEqual(command[-1], str(13 * TRIAL.GIB))
+            receipt = json.loads((Path(tmp) / 'ci-preflight.json').read_text())
+            self.assertEqual(receipt['model_profile'], TRIAL.LARGE_MODEL)
+            self.assertEqual(receipt['memory_max'], 13 * TRIAL.GIB)
+            self.assertEqual(receipt['host_available_required'], 14 * TRIAL.GIB)
 
     def test_ubuntu_qemu_changes_only_verified_tool_and_firmware_paths(self):
         original = TRIAL.qemu_command(Path('/verified/tools'), Path('/private/scratch'))
@@ -92,21 +121,40 @@ class Contracts(unittest.TestCase):
             self.assertEqual({p.name for p in result.iterdir()}, {'ci-source.json', 'vm-result.json'})
             self.assertNotIn('sentinel', ''.join(p.read_text() for p in result.iterdir()))
 
-    def test_guest_function_remains_identical_to_reviewed_baseline(self):
-        # Exact reviewed afdb284 guest source, also usable in shallow source CI.
-        # ast.dump() changes empty-field formatting across Python versions.
+    def test_default_guest_keeps_reviewed_task_and_acceptance_with_profile_substitution_only(self):
+        # Resolve only the explicit default-profile substitutions and remove the
+        # new profile-identity guard. Every other guest statement must still be
+        # the reviewed 44022c8/afdb284 behavior, including its final success gate.
         current = (ROOT / 'scripts/smoke_opencode_inference.py').read_text()
-        def guest(source):
-            node = next(node for node in ast.parse(source).body
-                        if isinstance(node, ast.FunctionDef) and node.name == 'guest')
-            return ast.get_source_segment(source, node)
-        self.assertEqual(hashlib.sha256(guest(current).encode()).hexdigest(),
-                         '56927db8b86d47e18dd5c64f7e523559b37b3b3f6d0e3aa4d6539d297bdcad8a')
+        node = next(node for node in ast.parse(current).body
+                    if isinstance(node, ast.FunctionDef) and node.name == 'guest')
+        source = ast.get_source_segment(current, node)
+        selection = "    profile = trial_profile(getattr(args, 'model_profile', MODEL))\n"
+        guard = "            require(report['task']['model_profile'] == profile['model_profile'], 'task_model_mismatch')\n"
+        self.assertIn(selection, source)
+        self.assertIn(guard, source)
+        source = source.replace(selection, '').replace(guard, '')
+        for key, original in (('core_revision', 'CORE'), ('model_profile', 'MODEL'),
+                              ('provision_budget_bytes', '5 * GIB'), ('core_memory_bytes', '5 * GIB')):
+            source = source.replace("profile['" + key + "']", original)
+        source = source.replace('staged_inputs(MODEL)', 'staged_inputs()')
+        # Python 3.12 adds empty type_params; omit this non-semantic field to
+        # retain the same structural fingerprint on local and hosted Python.
+        def stable(value):
+            if isinstance(value, ast.AST):
+                return [type(value).__name__, [(name, stable(item)) for name, item in ast.iter_fields(value)
+                                               if name != 'type_params']]
+            return [stable(item) for item in value] if isinstance(value, list) else value
+        encoded = json.dumps(stable(ast.parse(source).body[0]), sort_keys=True, separators=(',', ':')).encode()
+        self.assertEqual(hashlib.sha256(encoded).hexdigest(),
+                         '5321af83db1d961df90ecdbea73235da224117de85e32cd13143cb9436c6c637')
 
     def test_workflow_has_one_manual_trial_and_closed_export_only(self):
         source = (ROOT / '.github/workflows/opencode-inference.yml').read_text()
         for required in ('workflow_dispatch:', 'cancel-in-progress: false', 'runs-on: ubuntu-24.04',
-                         CI.CORE, 'persist-credentials: false', '--host-tools-profile github-ubuntu-24.04',
+                         'steps.selected_core.outputs.core_revision', 'persist-credentials: false',
+                         'default: qwen3-0.6b-v1', 'qwen3-4b-instruct-2507-v1',
+                         '--model-profile "$MODEL_PROFILE"', '--host-tools-profile github-ubuntu-24.04',
                          'env -i PATH=/usr/bin:/bin', 'build/ci-public-receipts/*.json'):
             self.assertIn(required, source)
         for forbidden in ('pull_request:', '\n  push:', 'actions/cache', 'upload-artifact@main',

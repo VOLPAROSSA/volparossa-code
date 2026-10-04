@@ -7,6 +7,14 @@ on:
         description: Exact reviewed 40-character Code commit dispatched (no branch substitution)
         type: string
         required: true
+      model_profile:
+        description: Explicit model and bounded guest resource profile (no fallback)
+        type: choice
+        required: true
+        default: qwen3-0.6b-v1
+        options:
+          - qwen3-0.6b-v1
+          - qwen3-4b-instruct-2507-v1
 
 permissions:
   contents: read
@@ -21,6 +29,7 @@ jobs:
     timeout-minutes: 180
     env:
       EXPECTED_CODE_SHA: ${{ inputs.expected_code_sha }}
+      MODEL_PROFILE: ${{ inputs.model_profile }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,16 +37,22 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Resolve the closed model profile to its exact core revision
+        id: selected_core
+        run: |
+          set -euo pipefail
+          python3 -B scripts/opencode_ci.py select --model-profile "$MODEL_PROFILE" >>"$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: VOLPAROSSA/volparossa
-          ref: 845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3
+          ref: ${{ steps.selected_core.outputs.core_revision }}
           path: build/ci-core
           persist-credentials: false
       - name: Require exact clean source and explicit hosted runner
         run: |
           set -euo pipefail
-          python3 -B scripts/opencode_ci.py source --core "$PWD/build/ci-core" --expected-code "$EXPECTED_CODE_SHA"
+          python3 -B scripts/opencode_ci.py source --core "$PWD/build/ci-core" \
+            --expected-code "$EXPECTED_CODE_SHA" --model-profile "$MODEL_PROFILE"
       - name: Install official tools only on the disposable GitHub host
         run: |
           set -euo pipefail
@@ -46,7 +61,7 @@ jobs:
           sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
             qemu-system-x86 qemu-utils cloud-image-utils seabios openssh-client \
             bubblewrap apparmor acl dbus-user-session curl jq util-linux build-essential git ca-certificates
-      - name: Admit user service with real KVM and unchanged resource limits
+      - name: Admit user service with real KVM and exact selected resource limits
         run: |
           set -euo pipefail
           python3 -B scripts/opencode_ci.py guard
@@ -66,14 +81,14 @@ jobs:
           export XDG_RUNTIME_DIR
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >>"$GITHUB_ENV"
-          python3 -B scripts/opencode_ci.py preflight
+          python3 -B scripts/opencode_ci.py preflight --model-profile "$MODEL_PROFILE"
       - name: Source-build the pinned OpenCode runtime (no model)
         timeout-minutes: 55
         run: bash scripts/opencode_ci_build.sh
       - name: Fetch exact public Node and Debian guest image
         run: |
           set -euo pipefail
-          python3 -B scripts/opencode_ci.py assets --core "$PWD/build/ci-core"
+          python3 -B scripts/opencode_ci.py assets --core "$PWD/build/ci-core" --model-profile "$MODEL_PROFILE"
           image_url=$(jq -er '.url' build/ci-core/tests/helper/debian13-amd64-image-v1.json)
           image="$PWD/build/debian-13-genericcloud-amd64-20260826-2582.qcow2"
           curl --fail --silent --show-error --location --connect-timeout 30 --max-time 1200 \
@@ -87,8 +102,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_CODE_SHA"
           test -z "$(git status --porcelain)"
           python3 -B scripts/smoke_opencode_inference.py pack --core "$PWD/build/ci-core" \
-            --node "$PWD/build/ci-node/bin/node" --output "$PWD/build/ci-inputs.tar.gz"
-          python3 -B scripts/opencode_ci.py capture
+            --node "$PWD/build/ci-node/bin/node" --output "$PWD/build/ci-inputs.tar.gz" --model-profile "$MODEL_PROFILE"
+          python3 -B scripts/opencode_ci.py capture --model-profile "$MODEL_PROFILE"
       - name: One actual OpenCode core Qwen edit and test trial
         timeout-minutes: 115
         run: |
@@ -99,6 +114,7 @@ jobs:
             GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_SHA="$GITHUB_SHA" \
             XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
             python3 -B scripts/smoke_opencode_inference.py execute --yes --host-tools-profile github-ubuntu-24.04 \
+              --model-profile "$MODEL_PROFILE" \
               --core "$PWD/build/ci-core" --tools /usr \
               --image "$PWD/build/debian-13-genericcloud-amd64-20260826-2582.qcow2" \
               --bundle "$PWD/build/ci-inputs.tar.gz" --output "$PWD/build/ci-vm"

@@ -3,7 +3,7 @@
 """One explicit OpenCode/Qwen guest trial; no host model execution or installation.
 
 pack captures the dirty Code candidate by exact file hash (never as a clean Git
-revision). execute owns one six-GiB KVM, its private SSH keys and its teardown.
+revision). execute owns one explicitly selected KVM, its private SSH keys and teardown.
 guest is rejected outside the disposable vpci Debian KVM. No Codex is launched.
 """
 import argparse
@@ -30,6 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = '845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3'
 MODEL = 'qwen3-0.6b-v1'
 GIB = 1024 ** 3
+LARGE_MODEL = 'qwen3-4b-instruct-2507-v1'
+# Separate reviewed source; the default profile retains its original core pin.
+LARGE_CORE = '39bfc0d14bd45563957c8a41e8183592e7ee7a73'
+MODEL_PROFILES = (MODEL, LARGE_MODEL)
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
 IMAGE_SHA512 = '184761b0dad0f9ace02f9298050ca96ce3caa39a461a47706d47ff9698b59933918b91b40177fbd4d392f6446af8b4d18ecb94caca988169b19641606bf34003'
@@ -44,6 +48,22 @@ TASK_UNIT = 'volparossa-opencode-task.service'
 def require(value, reason):
     if not value:
         raise ValueError(reason)
+
+
+def trial_profile(model_profile=MODEL):
+    """Closed source/resource choices; the larger trial never changes the default."""
+    require(model_profile in MODEL_PROFILES, 'unknown_model_profile')
+    if model_profile == MODEL:
+        return dict(model_profile=MODEL, core_revision=CORE, guest_memory_mib=6144,
+                    core_memory_bytes=5 * GIB, qemu_memory_bytes=7 * GIB,
+                    host_available_bytes=8 * GIB, provision_budget_bytes=5 * GIB,
+                    scratch_gib=18, memory_failure='host_available_memory_below_8GiB')
+    require(type(LARGE_CORE) is str and re.fullmatch('[0-9a-f]{40}', LARGE_CORE),
+            'larger_core_not_pinned')
+    return dict(model_profile=LARGE_MODEL, core_revision=LARGE_CORE, guest_memory_mib=12288,
+                core_memory_bytes=11 * GIB, qemu_memory_bytes=13 * GIB,
+                host_available_bytes=14 * GIB, provision_budget_bytes=20 * GIB,
+                scratch_gib=40, memory_failure='host_available_memory_below_14GiB')
 
 
 def digest(path, algorithm='sha256'):
@@ -88,9 +108,11 @@ def new_output(path):
 
 
 def pack(args):
+    profile = trial_profile(getattr(args, 'model_profile', MODEL))
     new_output(args.output)
     canonical(args.core)
-    require(run(['git', '-C', args.core, 'rev-parse', 'HEAD'], text=True).stdout.strip() == CORE, 'exact_core')
+    require(run(['git', '-C', args.core, 'rev-parse', 'HEAD'], text=True).stdout.strip()
+            == profile['core_revision'], 'exact_core')
     report_path = ROOT / 'build/opencode-runtime/build-report.json'
     report = load(report_path, 65536)
     binary = canonical(Path(report['binary']))
@@ -114,7 +136,7 @@ def pack(args):
     with tempfile.TemporaryDirectory(prefix='opencode-pack-', dir=args.output.parent) as temp:
         archive = Path(temp) / 'core.tar'
         with archive.open('xb') as stream:
-            subprocess.run(['git', '-C', str(args.core), 'archive', '--format=tar', CORE],
+            subprocess.run(['git', '-C', str(args.core), 'archive', '--format=tar', profile['core_revision']],
                            stdout=stream, stderr=subprocess.PIPE, timeout=60, check=True)
         files['core.tar'] = archive
         for name, source in files.items():
@@ -122,10 +144,10 @@ def pack(args):
             require(stat.S_ISREG(info.st_mode) and 0 < info.st_size < 200 * 1024**2, 'source_file')
             inventory[name] = {'bytes': info.st_size, 'sha256': digest(source),
                                'mode': 0o700 if name in ('runtime/opencode', 'runtime/node') else 0o600}
-        manifest = dict(version=1, kind='opencode-inference-inputs', core_revision=CORE,
+        manifest = dict(version=1, kind='opencode-inference-inputs', core_revision=profile['core_revision'],
             code_base_revision=run(['git', '-C', ROOT, 'rev-parse', 'HEAD'], text=True).stdout.strip(),
             code_contains_uncommitted_changes=True, code_git_head_proves_migration=False,
-            node_version='24.19.0', model_profile=MODEL, opencode_revision=report['source_commit'],
+            node_version='24.19.0', model_profile=profile['model_profile'], opencode_revision=report['source_commit'],
             opencode_binary_sha256=report['binary_sha256'], files=inventory)
         encoded = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
         with tarfile.open(args.output, 'x:gz', compresslevel=1) as target:
@@ -142,12 +164,14 @@ def pack(args):
         args.output.chmod(0o600)
     print(json.dumps({'packed': True, 'sha256': digest(args.output), 'bytes': args.output.stat().st_size,
                       'manifest_sha256': hashlib.sha256(encoded).hexdigest(), 'files': len(inventory),
-                      'core_revision': CORE, 'code_contains_uncommitted_changes': True}))
+                      'core_revision': profile['core_revision'], 'model_profile': profile['model_profile'],
+                      'code_contains_uncommitted_changes': True}))
 
 
-def staged_inputs():
+def staged_inputs(model_profile=MODEL):
+    profile = trial_profile(model_profile)
     manifest = load(INPUT / 'INPUTS.json')
-    require(manifest['core_revision'] == CORE and manifest['model_profile'] == MODEL
+    require(manifest['core_revision'] == profile['core_revision'] and manifest['model_profile'] == model_profile
             and manifest['code_contains_uncommitted_changes'] is True
             and manifest['code_git_head_proves_migration'] is False, 'input_authority')
     for name, row in manifest['files'].items():
@@ -205,13 +229,14 @@ def start(name, command, limit, seconds):
 
 
 def guest(args):
+    profile = trial_profile(getattr(args, 'model_profile', MODEL))
     os.umask(0o077)
     require(os.getuid() > 0 and pwd.getpwuid(os.getuid()).pw_name == 'vpci'
             and socket.gethostname() == 'volparossa-alpha'
             and run(['systemd-detect-virt', '--vm'], text=True).stdout.strip() == 'kvm'
             and 'VERSION_ID="13"' in Path('/etc/os-release').read_text(), 'disposable_guest_required')
     require(not BASE.exists() and not PROJECTS.exists() and not SOURCE.exists(), 'fresh_guest')
-    manifest = staged_inputs()
+    manifest = staged_inputs(profile['model_profile'])
     output = Path('/home/vpci/opencode-result.json')
     require(not output.exists(), 'fresh_receipt')
     BASE.mkdir(mode=0o700)
@@ -224,8 +249,8 @@ def guest(args):
     train = private.TRAIN
     before, provision, created = None, None, []
     report = dict(version=1, kind='opencode-real-inference-guest', passed=False, phase='packages',
-        failure=None, core_revision=CORE, input_manifest_sha256=digest(INPUT / 'INPUTS.json'),
-        code_contains_uncommitted_changes=True, model_profile=MODEL, actual_model_provisioned=False,
+        failure=None, core_revision=profile['core_revision'], input_manifest_sha256=digest(INPUT / 'INPUTS.json'),
+        code_contains_uncommitted_changes=True, model_profile=profile['model_profile'], actual_model_provisioned=False,
         private_peer_execution_proven=False, confidential_remote_execution_proven=False,
         raw_model_output_exported=False, host_state_unchanged=None, units_empty=False, private_data_removed=False)
     try:
@@ -248,16 +273,16 @@ def guest(args):
         report['phase'] = 'model-provision'
         with (BASE / 'provision.log').open('xb') as log:
             provision = subprocess.Popen([sys.executable, '-B', str(private.ML / 'provision.py'),
-                '--execute', '--yes', '--disposable-guest', '--model-profile', MODEL,
-                '--root', str(BASE / 'ml'), '--budget-bytes', str(5 * GIB)],
+                '--execute', '--yes', '--disposable-guest', '--model-profile', profile['model_profile'],
+                '--root', str(BASE / 'ml'), '--budget-bytes', str(profile['provision_budget_bytes'])],
                 stdout=log, stderr=log, start_new_session=True, env=ENV)
             require(provision.wait(timeout=1850) == 0, 'provision_failed')
         observed = load(BASE / 'ml/provision-report.json')
         model = module(private.ML / 'provision.py', 'opencode_model_provision')
-        pins = model.load_pins(MODEL)
+        pins = model.load_pins(profile['model_profile'])
         retained, lock = model.retained_pin_files(pins)
-        expected = dict(model_id=pins['model_id'], revision=pins['revision'], model_profile=MODEL,
-            download_bytes=model.download_total(pins), budget_bytes=5 * GIB, installed_wheels=len(pins['wheels']),
+        expected = dict(model_id=pins['model_id'], revision=pins['revision'], model_profile=profile['model_profile'],
+            download_bytes=model.download_total(pins), budget_bytes=profile['provision_budget_bytes'], installed_wheels=len(pins['wheels']),
             model_pins_sha256=hashlib.sha256(retained).hexdigest(), requirements_sha256=hashlib.sha256(lock).hexdigest())
         require(observed['success'] is True and observed['training_performed'] is False
                 and observed['runtime_autofetch_enabled'] is False
@@ -268,8 +293,8 @@ def guest(args):
         created.append(CORE_UNIT)
         start(CORE_UNIT, [str(private.CLI), 'compute', 'private-serve', '--socket', str(BASE / 'private.sock'),
             '--work-parent', str(BASE / 'work'), '--runtime-root', str(BASE / 'ml/venv'),
-            '--model-root', str(BASE / 'ml/model'), '--model-profile', MODEL,
-            '--threads', '2', '--max-seconds', '600', '--execute'], 5 * GIB, 2700)
+            '--model-root', str(BASE / 'ml/model'), '--model-profile', profile['model_profile'],
+            '--threads', '2', '--max-seconds', '600', '--execute'], profile['core_memory_bytes'], 2700)
         deadline = time.monotonic() + 15
         while not (BASE / 'private.sock').exists() and time.monotonic() < deadline:
             time.sleep(.1)
@@ -293,13 +318,14 @@ def guest(args):
         report['task_exit_status'] = int(state.get('ExecMainStatus', '-1'))
         if (BASE / 'task.json').exists():
             report['task'] = load(BASE / 'task.json', 32768)
+            require(report['task']['model_profile'] == profile['model_profile'], 'task_model_mismatch')
         for name, field in ((CORE_UNIT, 'core_memory'), (TASK_UNIT, 'task_memory')):
             report[field] = memory(name)
             require(report[field]['swap'] == report[field]['oom_kill'] == 0, 'resource_violation')
         report['core_diagnostics'] = private.service_diagnostic(BASE / (CORE_UNIT + '.log'))
         require(report['task_exit_status'] == 0 and report.get('task', {}).get('passed') is True, 'task_failed')
         require(empty(TASK_UNIT) and not list((BASE / 'work').iterdir()), 'task_private_cleanup')
-        require(staged_inputs() == manifest, 'staged_inputs_changed')
+        require(staged_inputs(profile['model_profile']) == manifest, 'staged_inputs_changed')
         report['inputs_unchanged'] = True
         report['phase'] = 'core-stop'
         unit(CORE_UNIT, 'kill', '--kill-whom=main', '--signal=SIGINT')
@@ -355,14 +381,16 @@ def host_state():
 
 def available_memory():
     values = dict(row.split(':', 1) for row in Path('/proc/meminfo').read_text().splitlines())
-    return int(values['MemAvailable'].split()[0]) * 1024
+    # Admission must fit both currently available RAM and total physical RAM.
+    return min(int(values[key].split()[0]) for key in ('MemAvailable', 'MemTotal')) * 1024
 
 
 def closed_exception(error):
     classes = {'OSError', 'PermissionError', 'FileNotFoundError', 'ValueError', 'KeyError', 'TypeError',
                'InterruptedError', 'CalledProcessError', 'TimeoutExpired'}
     reason = error.args[0] if error.args and type(error.args[0]) is str else None
-    reasons = {'host_available_memory_below_8GiB', 'another_vm_is_running', 'qemu_start', 'qemu_cgroup',
+    reasons = {'host_available_memory_below_8GiB', 'host_available_memory_below_14GiB',
+               'another_vm_is_running', 'qemu_start', 'qemu_cgroup',
                'qemu_resource_limits', 'qemu_exited', 'guest_boot_deadline', 'guest_bundle_hash',
                'guest_trial_failed', 'user_unit_observation'}
     return {'class': type(error).__name__ if type(error).__name__ in classes else 'other',
@@ -399,10 +427,11 @@ def boot_running(state):
         and int(state['MainPID']) > 0
 
 
-def qemu_command(tools, scratch, firmware=None):
+def qemu_command(tools, scratch, firmware=None, model_profile=MODEL):
+    profile = trial_profile(model_profile)
     firmware = firmware or tools / 'root/usr/share/seabios/vgabios-stdvga.bin'
     return [tools / 'bin/qemu-system-x86_64', '-name', 'volparossa-opencode-inference', '-no-user-config', '-nodefaults',
-        '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '6144',
+        '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', str(profile['guest_memory_mib']),
         '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1,romfile=' + str(firmware),
         '-drive', 'if=virtio,format=qcow2,file=' + str(scratch / 'overlay.qcow2'),
         '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(scratch / 'seed.img'),
@@ -412,7 +441,8 @@ def qemu_command(tools, scratch, firmware=None):
         '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
 
 
-def validate_bundle(path):
+def validate_bundle(path, model_profile=MODEL):
+    profile = trial_profile(model_profile)
     canonical(path)
     require(path.stat().st_size < 512 * 1024**2, 'bundle_bound')
     with tarfile.open(path) as archive:
@@ -426,7 +456,7 @@ def validate_bundle(path):
         manifest_entry = archive.getmember('INPUTS.json')
         require(manifest_entry.size <= 2 * 1024**2, 'manifest_bound')
         manifest = json.load(archive.extractfile(manifest_entry))
-        require(manifest['core_revision'] == CORE and manifest['model_profile'] == MODEL
+        require(manifest['core_revision'] == profile['core_revision'] and manifest['model_profile'] == model_profile
                 and manifest['code_contains_uncommitted_changes'] is True
                 and manifest['code_git_head_proves_migration'] is False
                 and set(manifest['files']) == set(names) - {'INPUTS.json'}, 'bundle_authority')
@@ -440,15 +470,17 @@ def validate_bundle(path):
 
 
 def execute(args):
+    profile = trial_profile(getattr(args, 'model_profile', MODEL))
     os.umask(0o077)
     require(args.yes and os.getuid() > 0, 'explicit_unprivileged_execution')
     new_output(args.output)
-    require(available_memory() >= 8 * GIB, 'host_available_memory_below_8GiB')
+    require(available_memory() >= profile['host_available_bytes'], profile['memory_failure'])
     require(os.access('/dev/kvm', os.R_OK | os.W_OK), 'host_kvm_unavailable')
     canonical(args.image)
     require(args.image.name == IMAGE_NAME and digest(args.image, 'sha512') == IMAGE_SHA512, 'image_pin')
     canonical(args.core)
-    require(run(['git', '-C', args.core, 'rev-parse', 'HEAD'], text=True).stdout.strip() == CORE, 'core_revision')
+    require(run(['git', '-C', args.core, 'rev-parse', 'HEAD'], text=True).stdout.strip()
+            == profile['core_revision'], 'core_revision')
     tools_profile = getattr(args, 'host_tools_profile', 'workspace-debian')
     if tools_profile == 'github-ubuntu-24.04':
         ci = module(ROOT / 'scripts/opencode_ci.py', 'opencode_ci_host')
@@ -459,7 +491,7 @@ def execute(args):
         run([sys.executable, '-B', args.core / 'tests/integration/browser-native-tools.py',
              '--verify', '--output', canonical(args.tools)])
         host_tools = None
-    manifest = validate_bundle(args.bundle)
+    manifest = validate_bundle(args.bundle, profile['model_profile'])
     # The host executes only this reviewed runner; guest code remains in KVM.
     require(manifest['files']['code/scripts/smoke_opencode_inference.py']['sha256'] == digest(Path(__file__)),
             'runner_differs_from_captured_input')
@@ -483,8 +515,9 @@ def execute(args):
     name = 'volparossa-opencode-vm-' + uuid.uuid4().hex[:12] + '.service'
     launched, status = False, 1
     receipt = dict(version=1, kind='opencode-inference-vm', passed=False, phase='prepare', failure=None,
-        core_revision=CORE, bundle_sha256=digest(args.bundle), bundle_bytes=args.bundle.stat().st_size,
-        code_contains_uncommitted_changes=True, memory_mib=6144, cpus=2, vm_started=False,
+        core_revision=profile['core_revision'], model_profile=profile['model_profile'],
+        bundle_sha256=digest(args.bundle), bundle_bytes=args.bundle.stat().st_size,
+        code_contains_uncommitted_changes=True, memory_mib=profile['guest_memory_mib'], cpus=2, vm_started=False,
         qemu_joined=False, scratch_removed=False, host_observed_routes_dns_unchanged=None,
         host_firewall_modified=False, actual_model_execution_proven=False,
         confidential_remote_execution_proven=False)
@@ -521,7 +554,7 @@ def execute(args):
     try:
         bins = args.tools / 'bin'
         run([bins / 'qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'qcow2', '-b', args.image,
-             scratch / 'overlay.qcow2', '18G'])
+             scratch / 'overlay.qcow2', str(profile['scratch_gib']) + 'G'])
         for target, label in ((key, 'volparossa-opencode-user'), (hostkey, 'volparossa-opencode-host')):
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', label, '-f', target])
         known.write_text('[127.0.0.1]:22223 ' + hostkey.with_suffix('.pub').read_text())
@@ -538,13 +571,14 @@ def execute(args):
         run([bins / 'cloud-localds', scratch / 'seed.img', scratch / 'user-data', scratch / 'meta-data'], env=tool_env)
         # Check again immediately before launch; never rely on an earlier snapshot.
         available = available_memory()
-        require(available >= 8 * GIB, 'host_available_memory_below_8GiB')
+        require(available >= profile['host_available_bytes'], profile['memory_failure'])
         receipt['host_available_bytes_at_launch'] = available
         qemu = qemu_command(args.tools, scratch,
-                            Path('/usr/share/seabios/vgabios-stdvga.bin') if host_tools is not None else None)
+                            Path('/usr/share/seabios/vgabios-stdvga.bin') if host_tools is not None else None,
+                            profile['model_profile'])
         run(['systemd-run', '--user', '--quiet', '--unit=' + name, '--property=Type=exec',
             '--property=RemainAfterExit=yes',
-            '--property=MemoryMax=' + str(7 * GIB), '--property=MemorySwapMax=0',
+            '--property=MemoryMax=' + str(profile['qemu_memory_bytes']), '--property=MemorySwapMax=0',
             '--property=RuntimeMaxSec=7200', '--property=TimeoutStopSec=15', '--property=KillMode=control-group',
             '--property=StandardOutput=null', '--property=StandardError=append:' + str(scratch / 'qemu.stderr'), *qemu], env=tool_env)
         launched, receipt['vm_started'], receipt['phase'] = True, True, 'guest-boot'
@@ -558,7 +592,8 @@ def execute(args):
         group_path = Path('/sys/fs/cgroup' + group)
         receipt['qemu_memory_max'] = int((group_path / 'memory.max').read_text())
         receipt['qemu_swap_max'] = int((group_path / 'memory.swap.max').read_text())
-        require(receipt['qemu_memory_max'] == 7 * GIB and receipt['qemu_swap_max'] == 0, 'qemu_resource_limits')
+        require(receipt['qemu_memory_max'] == profile['qemu_memory_bytes']
+                and receipt['qemu_swap_max'] == 0, 'qemu_resource_limits')
         print(json.dumps({'phase': 'guest-boot', 'qemu_pid': receipt['qemu_pid'], 'unit': name}), flush=True)
         for _ in range(180):
             if ssh('true', timeout=10, check=False).returncode == 0:
@@ -578,8 +613,9 @@ def execute(args):
         require(actual == receipt['bundle_sha256'], 'guest_bundle_hash')
         ssh('tar', '-xzf', '/home/vpci/opencode-inputs.tar.gz', '-C', str(INPUT), '--no-same-owner')
         receipt['phase'] = 'guest-inference'
-        print(json.dumps({'phase': receipt['phase'], 'model_profile': MODEL}), flush=True)
-        executed = ssh('python3', '-B', str(INPUT / 'code/scripts/smoke_opencode_inference.py'), 'guest', timeout=6600, check=False)
+        print(json.dumps({'phase': receipt['phase'], 'model_profile': profile['model_profile']}), flush=True)
+        executed = ssh('python3', '-B', str(INPUT / 'code/scripts/smoke_opencode_inference.py'),
+                       'guest', '--model-profile', profile['model_profile'], timeout=6600, check=False)
         receipt['guest_exit_status'] = executed.returncode
         scp('vpci@127.0.0.1:/home/vpci/opencode-result.json', args.output / 'guest-result.json')
         result = load(args.output / 'guest-result.json', 65536)
@@ -631,13 +667,15 @@ def main():
     packing.add_argument('--core', type=Path, required=True)
     packing.add_argument('--node', type=Path, required=True)
     packing.add_argument('--output', type=Path, required=True)
-    modes.add_parser('guest')
+    guest_parser = modes.add_parser('guest')
     execution = modes.add_parser('execute')
     execution.add_argument('--yes', action='store_true')
     execution.add_argument('--host-tools-profile', choices=('workspace-debian', 'github-ubuntu-24.04'),
                            default='workspace-debian')
     for name in ('core', 'tools', 'image', 'bundle', 'output'):
         execution.add_argument('--' + name, type=Path, required=True)
+    for subparser in (packing, guest_parser, execution):
+        subparser.add_argument('--model-profile', choices=MODEL_PROFILES, default=MODEL)
     args = parser.parse_args()
     if args.mode == 'pack':
         pack(args)
