@@ -12,6 +12,14 @@ const {caps, result, reply, fixture} = require('./conversation-fixture.cjs');
 const MODEL = 'qwen3-0.6b-v1';
 const hash = value => createHash('sha256').update(value).digest('hex');
 
+function syntheticResult(output, conversation) {
+  // Negotiating support does not select a policy. Mirror only the policy on
+  // the actual request, just as the core's checked result binding requires.
+  const selected = Object.hasOwn(conversation, 'generation_policy');
+  if (selected) assert.equal(conversation.generation_policy, 'greedy_v1');
+  return {...result(output, MODEL), ...(selected ? {generation_policy: conversation.generation_policy} : {})};
+}
+
 async function terminalCase(reason, config) {
   const project = await fs.mkdtemp(path.join(os.tmpdir(), 'volparossa-opencode-error-'));
   await fs.chmod(project, 0o700);
@@ -21,22 +29,30 @@ async function terminalCase(reason, config) {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 90000);
   let runtime, fixtureError, taskError, submissions = 0, codingSubmissions = 0, approvals = 0;
+  const generationPolicies = {unspecified: 0, greedy_v1: 0};
   let phase = 'fixture';
   try {
     const core = await fixture({after: action => cleanups.push(action)}, (socket, message) => {
       try {
         assert.equal(message.operation.type, 'submit_conversation');
         assert.equal(message.operation.conversation.visibility, 'private_local');
+        const conversation = message.operation.conversation;
+        const selectedPolicy = Object.hasOwn(conversation, 'generation_policy');
+        if (selectedPolicy) assert.equal(conversation.generation_policy, 'greedy_v1');
+        generationPolicies[selectedPolicy ? 'greedy_v1' : 'unspecified']++;
         assert.ok(++submissions <= 8, 'bounded fixture requests');
         const coding = message.operation.conversation.tools.some(tool => tool.name === 'bash');
-        if (coding) assert.equal(++codingSubmissions, 1, 'terminal output must not cause native regeneration');
+        if (coding) {
+          assert.equal(conversation.generation_policy, 'greedy_v1', 'native coding must select its configured policy');
+          assert.equal(++codingSubmissions, 1, 'terminal output must not cause native regeneration');
+        }
         // Titles and other upstream no-tool requests are not the coding task.
         reply(socket, message, 'admitted');
         if (coding && reason === 'execution_budget_exceeded') {
           reply(socket, message, 'error', {code: reason});
         } else {
           const output = coding ? {type: 'incomplete', reason} : {type: 'assistant', text: 'Synthetic retry check'};
-          reply(socket, message, 'result', {result: {...result(output, MODEL), generation_policy: 'greedy_v1'}});
+          reply(socket, message, 'result', {result: syntheticResult(output, conversation)});
         }
       } catch (error) {
         fixtureError ??= error;
@@ -76,7 +92,7 @@ async function terminalCase(reason, config) {
     await runtime.close();
     runtime = null;
     return {reason, coding_submissions: codingSubmissions, auxiliary_submissions: submissions - codingSubmissions,
-      native_retry_count: 0, terminal_error: taskError.code, approvals,
+      native_retry_count: 0, terminal_error: taskError.code, approvals, generation_policies: generationPolicies,
       original_project_unchanged: true, session_cleanup_confirmed: true, provider_diagnostics: diagnostics};
   } catch (error) {
     process.stderr.write(JSON.stringify({reason, phase, coding_submissions: codingSubmissions,
@@ -134,4 +150,4 @@ if (require.main === module) main().catch(error => {
   process.stderr.write(`Native retry check failed: ${String(error.message).slice(0, 200)}\n`);
   process.exitCode = 1;
 });
-module.exports = {main};
+module.exports = {main, syntheticResult};

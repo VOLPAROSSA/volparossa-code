@@ -27,12 +27,12 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE = '08f23e11ce883f546262ec424940400283d58f22'
+CORE = 'a5246942707890978867930dca518a29d1d48bd5'
 MODEL = 'qwen3-0.6b-v1'
 GIB = 1024 ** 3
 LARGE_MODEL = 'qwen3-4b-instruct-2507-v1'
 # Both profiles require the reviewed terminal-budget IPC; model and budgets stay distinct.
-LARGE_CORE = '08f23e11ce883f546262ec424940400283d58f22'
+LARGE_CORE = 'a5246942707890978867930dca518a29d1d48bd5'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
