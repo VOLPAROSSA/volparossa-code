@@ -129,6 +129,36 @@ class Contracts(unittest.TestCase):
         node = next(node for node in ast.parse(current).body
                     if isinstance(node, ast.FunctionDef) and node.name == 'guest')
         source = ast.get_source_segment(current, node)
+        # Specialize only the explicit native opt-in to its unchanged torch
+        # default. Keep the original fingerprint; do not replace the golden.
+        native_blocks = [child for child in ast.walk(node) if isinstance(child, ast.If)
+                         and ast.unparse(child.test) == "backend != 'torch'"]
+        self.assertEqual(len(native_blocks), 2)
+        for child in reversed(sorted(native_blocks, key=lambda item: item.lineno)):
+            lines = source.splitlines(keepends=True)
+            del lines[child.lineno - node.lineno:child.end_lineno - node.lineno + 1]
+            source = ''.join(lines)
+        changes = (
+            ("    backend = getattr(args, 'inference_backend', 'torch')\n", ''),
+            ("trial_profile(getattr(args, 'model_profile', MODEL), backend)",
+             "trial_profile(getattr(args, 'model_profile', MODEL))"),
+            ("staged_inputs(profile['model_profile'], backend)", "staged_inputs(profile['model_profile'])"),
+            ("    report.update(backend_fields(profile))\n", ''),
+            ("        provision_pins = (model.load_pins(profile['model_profile'], native_cpu_converter=True)\n"
+             "                          if backend != 'torch' else model.load_pins(profile['model_profile']))\n",
+             "        provision_pins = model.load_pins(profile['model_profile'])\n"),
+            (",\n                *(['--native-cpu-source', str(BASE / 'llama-source'), '--native-cpu-build', str(BASE / 'llama-build')]\n"
+             "                  if backend != 'torch' else [])", ''),
+            (",\n            *(['--native-backend-root', str(BASE / 'ml/native-backend'), '--native-backend-sha256',\n"
+             "               report['native_backend']['manifest_sha256']] if backend != 'torch' else [])", ''),
+            ("'core_memory' if name == CORE_UNIT else\n                           'native_build_memory' if name == NATIVE_UNIT else 'task_memory'",
+             "'core_memory' if name == CORE_UNIT else 'task_memory'"),
+            ("(\n                               native_memory(profile['core_memory_bytes']) if name == NATIVE_UNIT else memory(name))", "memory(name)"),
+            (",\n                native_cpu=backend != 'torch'", ''),
+        )
+        for added, original in changes:
+            self.assertIn(added, source)
+            source = source.replace(added, original)
         selection = "    profile = trial_profile(getattr(args, 'model_profile', MODEL))\n"
         guard = "            require(report['task']['model_profile'] == profile['model_profile'], 'task_model_mismatch')\n"
         self.assertIn(selection, source)
@@ -180,6 +210,7 @@ class Contracts(unittest.TestCase):
                          'steps.selected_core.outputs.core_revision', 'persist-credentials: false',
                          'default: qwen3-0.6b-v1', 'qwen3-4b-instruct-2507-v1',
                          '--model-profile "$MODEL_PROFILE"', '--host-tools-profile github-ubuntu-24.04',
+                         'default: torch', '--inference-backend "$INFERENCE_BACKEND"', 'llama_cpp_bf16_v1',
                          'env -i PATH=/usr/bin:/bin', 'build/ci-public-receipts/*.json'):
             self.assertIn(required, source)
         for forbidden in ('pull_request:', '\n  push:', 'actions/cache', 'upload-artifact@main',

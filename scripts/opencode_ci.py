@@ -25,6 +25,7 @@ BASELINE = 'afdb28495cacd74de3bd8467491bdbb9a8b50949'
 PROFILE = 'github-ubuntu-24.04'
 MODEL = 'qwen3-0.6b-v1'
 MODEL_PROFILES = (MODEL, 'qwen3-4b-instruct-2507-v1')
+INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
 TOOLS = {'qemu-system-x86_64': ('/usr/bin/qemu-system-x86_64', 'qemu-system-x86'),
          'qemu-img': ('/usr/bin/qemu-img', 'qemu-utils'),
          'cloud-localds': ('/usr/bin/cloud-localds', 'cloud-image-utils'),
@@ -75,14 +76,18 @@ def guard():
             and os.uname().machine == 'x86_64', 'ubuntu_24_amd64_only')
 
 
-def trial_profile(model_profile=MODEL):
+def trial_profile(model_profile=MODEL, inference_backend='torch'):
     trial = module(ROOT / 'scripts/smoke_opencode_inference.py', 'ci_trial_profile')
-    return trial.trial_profile(model_profile)
+    return trial.trial_profile(model_profile, inference_backend)
 
 
-def exact_sources(core, expected, model_profile=MODEL):
+def backend_fields(profile):
+    return {key: profile[key] for key in ('inference_backend', 'native_source_commit') if key in profile}
+
+
+def exact_sources(core, expected, model_profile=MODEL, inference_backend='torch'):
     guard()
-    profile = trial_profile(model_profile)
+    profile = trial_profile(model_profile, inference_backend)
     require(re.fullmatch('[0-9a-f]{40}', expected or '')
             and expected == os.environ.get('GITHUB_SHA'), 'exact_dispatched_source')
     require(core.resolve(strict=True) == core and core == BUILD / 'ci-core', 'core_checkout_scope')
@@ -94,7 +99,7 @@ def exact_sources(core, expected, model_profile=MODEL):
     return {'version': 1, 'code_revision': expected, 'code_baseline': BASELINE,
             'code_tree': run(['git', '-C', ROOT, 'rev-parse', 'HEAD^{tree}'], text=True).stdout.strip(),
             'core_revision': profile['core_revision'], 'model_profile': model_profile, 'code_checkout_clean': True,
-            'host_tools_profile': PROFILE, 'actual_inference_proven': False}
+            'host_tools_profile': PROFILE, 'actual_inference_proven': False, **backend_fields(profile)}
 
 
 def verify_host_tools(tools):
@@ -117,10 +122,10 @@ def verify_host_tools(tools):
             'source_built_host_tools': False, 'debian_workspace_pins_claimed': False}
 
 
-def preflight(model_profile=MODEL):
+def preflight(model_profile=MODEL, inference_backend='torch'):
     tools = verify_host_tools(Path('/usr'))
     trial = module(ROOT / 'scripts/smoke_opencode_inference.py', 'ci_trial_preflight')
-    profile = trial.trial_profile(model_profile)
+    profile = trial.trial_profile(model_profile, inference_backend)
     require(trial.available_memory() >= profile['host_available_bytes'], profile['memory_failure'])
     name = 'volparossa-opencode-preflight-' + uuid.uuid4().hex[:12] + '.service'
     # The service itself, not merely the invoking shell, proves KVM access and
@@ -156,7 +161,7 @@ assert int((base / 'memory.swap.max').read_text()) == 0
     record(BUILD / 'ci-preflight.json', {'version': 1, 'passed': True, 'actual_kvm_api': 12,
         'actual_user_cgroup': True, 'model_profile': model_profile,
         'memory_max': profile['qemu_memory_bytes'], 'host_available_required': profile['host_available_bytes'], 'swap_max': 0,
-        'preflight_service_joined': True, 'vm_started': False})
+        'preflight_service_joined': True, 'vm_started': False, **backend_fields(profile)})
 
 
 def source_build():
@@ -188,9 +193,9 @@ assert 'volparossa_ci_native_child' in Path('/proc/self/attr/current').read_text
     record(BUILD / 'ci-build.json', value)
 
 
-def assets(core, model_profile=MODEL):
+def assets(core, model_profile=MODEL, inference_backend='torch'):
     guard()
-    profile = trial_profile(model_profile)
+    profile = trial_profile(model_profile, inference_backend)
     require(run(['git', '-C', core, 'rev-parse', 'HEAD'], text=True).stdout.strip()
             == profile['core_revision'], 'exact_core')
     private = module(core / 'tests/integration/agent-private-conversation.py', 'ci_node_assets')
@@ -200,19 +205,20 @@ def assets(core, model_profile=MODEL):
         private.extract_node(archive, BUILD / 'ci-node', pin['files'])
 
 
-def capture(model_profile=MODEL):
+def capture(model_profile=MODEL, inference_backend='torch'):
     guard()
     trial = module(ROOT / 'scripts/smoke_opencode_inference.py', 'ci_trial_inputs')
-    profile = trial.trial_profile(model_profile)
+    profile = trial.trial_profile(model_profile, inference_backend)
     path = BUILD / 'ci-inputs.tar.gz'
-    manifest = trial.validate_bundle(path, model_profile)
+    manifest = trial.validate_bundle(path, model_profile, inference_backend)
     source = json.loads((BUILD / 'ci-source.json').read_text())
+    trial.validate_backend_fields(source, profile)
     require(source['code_revision'] == manifest['code_base_revision'] == os.environ['GITHUB_SHA'], 'input_source')
     require(source['core_revision'] == manifest['core_revision'] == profile['core_revision']
             and source['model_profile'] == manifest['model_profile'] == model_profile, 'input_profile')
     record(BUILD / 'ci-inputs.json', {'version': 1, 'bundle_sha256': digest(path),
            'code_revision': source['code_revision'], 'core_revision': profile['core_revision'], 'model_profile': model_profile,
-           'code_checkout_clean': True, 'input_manifest': manifest})
+           'code_checkout_clean': True, 'input_manifest': manifest, **backend_fields(profile)})
 
 
 def export():
@@ -240,20 +246,21 @@ def main():
     parser.add_argument('--core', type=Path)
     parser.add_argument('--expected-code')
     parser.add_argument('--model-profile', choices=MODEL_PROFILES, default=MODEL)
+    parser.add_argument('--inference-backend', choices=INFERENCE_BACKENDS, default='torch')
     args = parser.parse_args()
     if args.mode == 'guard':
         guard()
     elif args.mode == 'select':
         guard()
-        print('core_revision=' + trial_profile(args.model_profile)['core_revision'])
+        print('core_revision=' + trial_profile(args.model_profile, args.inference_backend)['core_revision'])
     elif args.mode == 'source':
-        record(BUILD / 'ci-source.json', exact_sources(args.core, args.expected_code, args.model_profile))
+        record(BUILD / 'ci-source.json', exact_sources(args.core, args.expected_code, args.model_profile, args.inference_backend))
     elif args.mode == 'assets':
-        assets(args.core, args.model_profile)
+        assets(args.core, args.model_profile, args.inference_backend)
     elif args.mode == 'preflight':
-        preflight(args.model_profile)
+        preflight(args.model_profile, args.inference_backend)
     elif args.mode == 'capture':
-        capture(args.model_profile)
+        capture(args.model_profile, args.inference_backend)
     else:
         {'build': source_build, 'export': export}[args.mode]()
 
@@ -267,6 +274,7 @@ if __name__ == '__main__':
                    'official_package_owner', 'package_integrity', 'package_version',
                    'host_available_memory_below_8GiB', 'host_available_memory_below_14GiB',
                    'preflight_stop', 'preflight_observation', 'unknown_model_profile', 'larger_core_not_pinned',
+                   'unknown_inference_backend', 'native_backend_requires_qwen4b', 'native_core_not_pinned', 'input_backend',
                    'preflight_cleanup', 'exact_core', 'input_source', 'input_profile',
                    'closed_receipt_file', 'closed_receipt_object'}
         reason = error.args[0] if error.args and isinstance(error.args[0], str) else None

@@ -708,3 +708,45 @@ the default branch. Dispatch it on `feature/opencode-integration`, supplying
 that exact reviewed commit as `expected_code_sha`; dispatching an unprepared
 main branch cannot pass the source guard and must not install tools or launch
 a guest. There is no automatic inference run on push or pull request.
+
+### Explicit native CPU candidate
+
+The later original [4B trial 37228603308](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37228603308)
+on Code `714904a3ec452b8e10d8b40be6ac85107606ca3b` and core
+`6a517b576baa17e7329661ee0476d1848081d114` remains **failed**. One request
+reached the first model-forward start with 4,572 prompt tokens, then exhausted
+its execution budget without a completed forward, token, EOS, edit or test.
+The negotiated terminal error stopped blind retries. Cleanup was confirmed;
+the observations do not prove that all weights became resident or identify the
+stall's cause. Original artifact ZIP SHA-256:
+`fabcc8ba08f47f28f85614b645679654b70f83f02c85c4f8be8722c0d1d5978c`.
+
+An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
+different CPU executor for that same original 4B task. It pins core
+`f7e2c3b9c2abd710682a2ec51d4b5dfbc46b9d8f` and llama.cpp source
+`7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
+both existing model profiles retain their previous core pins. Native selection
+is refused for the smaller profile; there is no silent backend fallback.
+
+Select the native backend consistently for source selection, packing and
+execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
+exposes the same explicit choice. It must be registered and dispatched against
+the exact reviewed Code commit; a source pin is not evidence of a successful run.
+
+Only the disposable guest fetches and compiles the pinned native source. The
+new source-build service has two build jobs, low priority, the existing 11 GiB
+guest-service limit, no swap and a 1,800-second ceiling; the outer VM/SSH budgets
+are unchanged. Conversion stays within the original 20 GiB/1,800-second
+provisioning budget. It adds one pinned converter dependency, verifies all
+original tensor values and authorizes the measured backend manifest explicitly.
+The original model, full prompt, greedy policy, two worker threads, 600-second
+request budget, coding task and independent tests are unchanged. This is not
+quantization, a smaller model, confidential remote execution or a new app-level
+peer scheduler.
+
+Forty-three targeted Python fixture checks and forty-seven Node consumer/session
+checks pass. They cover exact source/backend/artifact bindings, negative cases,
+unchanged defaults, measured resource limits and cleanup contracts. No actual
+conversion, native model inference or successful coding loop has yet been proved.
+The core's retained full upstream sanitizer failure on a disallowed quantized
+path also remains explicit; separate BF16/F32 checks do not erase that failure.
