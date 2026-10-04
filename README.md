@@ -1,3 +1,5 @@
+![Project VOLPAROSSA Code — botanical illustration of a flowering plant with circuit-like roots on parchment](docs/assets/volparossa-code-banner.png)
+
 # Project VOLPAROSSA Code
 
 **OpenCode tools. VOLPAROSSA intelligence. Cooperative development.**
@@ -12,8 +14,7 @@ apps, clients and editor integrations can share the same core connection. The
 first integration is a development extension for VS Code/VSCodium on Linux;
 cross-platform applications and packaging are not yet complete.
 
-This README describes the OpenCode development candidate tracked in
-[PR #5](https://github.com/VOLPAROSSA/volparossa-code/pull/5), not a completed
+This README describes the OpenCode development integration, not a completed
 coding assistant. Original integration code is GPL-3.0-only; upstream licenses
 and notices remain intact. This is not an OpenAI-backed service or a copy of
 its proprietary IDE extension.
@@ -69,8 +70,18 @@ and the session shuts down cleanly. A second native trial invokes the cooperativ
 tool, preserves complete and incomplete core results, and confirms that only the
 enrolled public snapshot crosses the bridge. Both trials use **synthetic core/model
 replies**, not real inference or peer execution. Focused checks additionally cover
-adapter, editor and lifecycle behavior. Model-driven coding, native editor UI
-operation, protected peer execution and a finished immune-policy path remain unproved.
+adapter, editor and lifecycle behavior. The complete model-driven OpenCode
+read/edit/test loop, native editor UI operation, protected peer execution and a
+finished immune-policy path remain unproved.
+
+**Real public peer proof:** a separate owner command successfully obtained a
+small single-file replacement from a real Qwen0.6B worker on another peer.
+After explicit edit and check approvals, the unchanged original tests and an
+independent check passed. The original
+[disposable-network trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37221727043)
+also passed its discovery/task route checks and complete cleanup. This proves
+that bounded public operation, not a native OpenCode planning loop, general
+coding quality or confidential execution of private source on other devices.
 
 The available conversation executor is still **private and local**. Its scope is
 shown honestly; the adapter does not disguise it as network compute or export
@@ -82,8 +93,8 @@ cooperative task interface. The model can invoke this task once; it cannot appen
 private files or history to it. A limited owner-side proxy keeps the raw public
 core socket outside the coding sandbox. Core owns peer placement, execution and
 cancellation; original task results and incomplete-answer flags are retained.
-This interface currently requires the separate core cooperative-compute candidate,
-not stock `main`. The joined path with actual peer inference remains to be proved.
+This interface requires a core that implements the matching cooperative-compute
+contract. Complete joined answers through the real OpenCode tool remain unproved.
 
 **Run OpenCode Task with Enrolled Public Source** instead enrolls the complete
 saved source file for a peer-generated code replacement. The native agent can
@@ -130,8 +141,8 @@ notice and source pin are preserved in [third-party provenance](THIRD_PARTY_LICE
 - Exercise the source-built OpenCode runtime with actual core inference and a
   model-driven read/edit/test task with explicit local approvals and independently
   checked results, then verify native editor operation.
-- Prove the connected cooperative tool with actual core/peer execution, then
-  integrate its core dependency; retain original results, cancellation and provenance.
+- Extend the proven public single-file owner command to a complete real-model
+  OpenCode cooperative tool loop; retain original results, cancellation and provenance.
 - Implement remote conversation execution and actual protected private work,
   with suitable model capacity, measured performance and core-owned resource
   accounting. Public sharing is not a substitute for private execution.

@@ -318,6 +318,33 @@ immutable driver remain unchanged. Original ZIP SHA-256:
 job `111488876530` log SHA-256:
 `9b0f259e574f7e9399d6751adcb3c7d5130ab36d6725fe3045b6f2ebbdaf10d9`.
 
+The original [public trial `37221727043`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37221727043),
+attempt 1, **passes the complete bounded public acceptance**. It binds workflow
+Code `54af18cc5d30a880e3be298192af150daf01b805` (tree
+`eef18e2ce8c135e6daab29dbc80fbbd086f85d5a`), core
+`2a1b4ad347b7d9f12a6a4c2beee40ff8706bd477` (tree
+`cb999c2ae1419407211e97ba05366d9c6a4301ab`) and unchanged public driver
+`f27576ebd7e7ded2f1319186f34df87f48e970d7`. All eight expected relay/exit
+advertisements were observed after 235 inventory queries. The real Qwen0.6B
+worker on relay4 returned its
+original EOS-complete 31-byte replacement after 12 tokens. The fixture's
+original tests failed before the edit; the separately approved edit/check and
+unchanged original tests plus independent check then passed. No local planner
+or output repair supplied the answer.
+
+The separate discovery and task captures pass their original provider/path and
+privacy validators. The final byte-preserving control receipt joins all eight
+exchanges with zero active requests; all private cleanup flags pass, no owned
+network objects remain and guest network snapshots match. This is a public
+owner-helper/peer/model result, **not** evidence of native editor operation, a
+complete OpenCode planning loop, general coding quality or confidential private
+offload. Earlier runs retain their original failed outcomes.
+
+Original artifact ZIP SHA-256:
+`8a17e92c2bc4148093651a020cf0a2daaf46b2e14fcad74a4e4343024de02d11`;
+job `111493248899` log SHA-256:
+`0dbc4650b89ba5d6bb8a3474f886ff4016feb1a0042d88b52c9e5391776fee26`.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 
@@ -498,6 +525,25 @@ EOS, resource and owner-approval checks. This is a demonstrated adapter
 compatibility fix, not a proven explanation of that failed result. Its opt-in
 closed diagnostics distinguish rejection categories without retaining private
 model text; repeated validation observations do not count as extra executions.
+
+The subsequent [native 4B trial `37218791500`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37218791500)
+on Code `693516f8c5f3b7bab10fe83a6462f955af5a8c3e` and core `1297f8f1`
+**failed**. Pinned provisioning completed; three attempts reached generation
+begin after about 20 seconds but exceeded the unchanged 600-second execution
+budget. Their confirmed-cleanup `execution_failed` replies became HTTP 503,
+which the pinned OpenCode runtime retried. The overall 40-minute task deadline
+cancelled a fourth attempt. No completed model response, EOS, tool, edit or
+passing check was observed. The retained observations do not distinguish first
+forward computation from later decoding and do not establish the stall's cause.
+Private/runtime/guest and QEMU/scratch cleanup passed; normalized host routes
+and DNS matched, while raw route bytes differed. This does not become a pass
+because the separate public owner-command trial succeeded.
+
+Original artifact ZIP SHA-256:
+`56ef70bf28c08458b78ad61539495bcfdf45d990fd9563f366dac65652a768c2`;
+job `111484703730` log SHA-256:
+`dbef2bd19983b4c84a3fe5bdf413ea0863984c472c88348b6f09b4923278f8b2`.
+
 A dirty source capture is
 labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
 only that pinned profile using the existing guarded core provisioner.
