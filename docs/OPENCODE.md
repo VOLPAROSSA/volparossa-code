@@ -301,9 +301,12 @@ stop, and greedy generation does not guarantee a completed coding task.
 `scripts/smoke_opencode_inference.py` prepares one explicit disposable Debian 13
 KVM trial; it does not install or run the model on the development host. Its
 `pack` mode captures each Code source/runtime file by hash and the exact core
-archive `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`. A dirty source capture is
+archive selected by its explicit model profile. The default Qwen3-0.6B profile
+retains core `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`; the separate
+`qwen3-4b-instruct-2507-v1` candidate binds core
+`39bfc0d14bd45563957c8a41e8183592e7ee7a73`. A dirty source capture is
 labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
-the pinned Qwen3-0.6B profile using the existing guarded core provisioner.
+only that pinned profile using the existing guarded core provisioner.
 
 ```sh
 python3 -B scripts/smoke_opencode_inference.py
@@ -324,6 +327,11 @@ runner prints a no-execution preview without a mode. Actual execution requires
 usable KVM, no other QEMU instance and at least 8 GiB of currently available host
 memory. It owns a 6 GiB/two-vCPU headless guest in a bounded no-swap user cgroup;
 it never closes the owner's applications or changes host routing/DNS/firewall.
+The explicit 4B profile instead requires at least 14 GiB available host memory,
+uses a 12 GiB/two-vCPU guest with a 13 GiB no-swap cgroup, and reserves a
+40 GiB virtual disk with a 20 GiB provisioning budget. Select the same
+`--model-profile qwen3-4b-instruct-2507-v1` for both `pack` and `execute`;
+the larger profile does not replace the default or relax the coding task.
 
 The actual runtime/model must read and edit a disposable Python project and run
 its existing tests. A separate sandbox independently checks the result using
@@ -375,6 +383,25 @@ joined and its scratch removed; the outer host route/DNS comparison was false,
 so this run is not evidence of unchanged host state. Original artifact ZIP SHA-256:
 `9ac899f449239debc07817df803216891639836c03e3b8533e71e315399eccf9`.
 
+The first explicit 4B trial
+[`37204436941`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37204436941),
+on Code `0295710c6e93bcdf989f5b1527f4ffde746ab16e` and core
+`39bfc0d14bd45563957c8a41e8183592e7ee7a73`, **failed during model provisioning**.
+The guest compiled the real core but never confirmed model installation or
+started a coding task. Its closed report retains only `model-provision` /
+`stage_failed`, not the failing provisioning operation; neither model quality
+nor coding completion can be inferred from this attempt. Guest private state
+and owned processes were cleaned up, QEMU was joined and its scratch removed.
+The guest network snapshot matched, but the outer CI host's IPv6-route hash
+changed; this is not proof of unchanged outer host state. Original artifact ZIP
+SHA-256: `41e48432b0b36f409517895b3fbf47b0832d222c369187a797fdd9e77539ad98`.
+
+Subsequent trials retain closed provisioning diagnostics: the substage, process
+and HTTP status, fixed failure categories, and pin-validated ordered download
+starts—not completed downloads. Raw logs, URLs and error text stay private and
+are removed during cleanup. This does not establish the original failure's
+cause or change any resource limit, coding task or success condition.
+
 The manual `opencode-inference.yml` workflow adds an explicit GitHub-hosted
 Ubuntu 24.04 host-tool profile for that same trial. It requires the dispatched
 Code SHA, a clean checkout, the fixed core revision and newly verified runtime
@@ -382,14 +409,15 @@ inputs. The guest task is unchanged: actual OpenCode/core/Qwen must request
 approved tool work, edit the disposable project and run its check. It is not
 a mocked provider or a private-peer execution proof.
 
-This profile checks KVM and effective user-cgroup limits before source-building
-OpenCode. It retains the 8 GiB admission threshold, 6 GiB/two-vCPU guest, 7 GiB
-cgroup, disabled swap and disposable cleanup. Only on the ephemeral CI host,
+The workflow checks KVM and effective user-cgroup limits before source-building
+OpenCode. Its default retains the 8 GiB admission threshold, 6 GiB/two-vCPU guest,
+7 GiB cgroup, disabled swap and disposable cleanup. The explicit 4B choice uses
+the separate source and resource profile described above. Only on the ephemeral CI host,
 official packages and narrowly scoped KVM ACL/AppArmor changes are permitted;
 the owned changes must be restored. Only closed provenance/result/cleanup
 receipts are exported. The existing pinned Debian workspace-tool path is
-unchanged. Twelve focused offline contracts and shell/syntax checks pass;
-successful hosted admission and actual coding remain to be demonstrated.
+unchanged. Focused offline contracts and shell/syntax checks pass; hosted
+admission has been exercised, but actual coding completion remains unproved.
 
 For pre-merge testing, the identical manual workflow file must first exist on
 the default branch. Dispatch it on `feature/opencode-integration`, supplying

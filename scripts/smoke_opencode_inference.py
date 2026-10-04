@@ -89,6 +89,85 @@ def load(path, maximum=2 * 1024**2):
     return json.loads(path.read_bytes())
 
 
+def closed_provision(path, pins, stage, returncode, wait_timeout=False):
+    """Bounded metadata only; progress means download starts, not verified assets."""
+    stages = {'pins', 'launch', 'process', 'report', 'provenance', 'complete'}
+    value = dict(version=1, stage=stage if stage in stages else 'unknown',
+        process_status=returncode if type(returncode) is int and -128 <= returncode <= 255 else None,
+        wait_timeout=wait_timeout is True, log_state='absent', progress_state='no_signal',
+        download_starts=0, last_artifact_index=None, failure_class='unknown', http_status=None,
+        wheel_graph_checked=False, runtime_import_checked=False)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                    and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o600,
+                    'private_provision_log')
+            raw = stream.read(131073)
+        value['log_state'] = 'truncated' if len(raw) > 131072 else 'present'
+        # A truncated prefix cannot establish the final error or a completed step.
+        lines = raw[:131072].splitlines()
+        if value['log_state'] == 'truncated':
+            lines = lines[:-1]
+        artifacts = pins['wheels'] + pins['files'] if pins is not None else []
+        for line in lines:
+            if line.startswith(b'{"downloading":'):
+                try:
+                    row = json.loads(line)
+                except (ValueError, UnicodeError):
+                    value['progress_state'] = 'invalid'
+                    continue
+                index = value['download_starts']
+                if value['progress_state'] == 'invalid' or index >= len(artifacts) \
+                        or set(row) != {'downloading', 'bytes'} or type(row['bytes']) is not int \
+                        or row != {'downloading': artifacts[index]['path'], 'bytes': artifacts[index]['bytes']}:
+                    value['progress_state'] = 'invalid'
+                    continue
+                value.update(progress_state='ordered', download_starts=index + 1, last_artifact_index=index)
+            if value['log_state'] != 'present':
+                continue
+            value['wheel_graph_checked'] |= line == b'PINNED_WHEEL_GRAPH_OK'
+            value['runtime_import_checked'] |= line == b'OFFLINE_CPU_RUNTIME_IMPORT_OK'
+            prefix = b'Provisioning refused: '
+            if not line.startswith(prefix):
+                continue
+            reason = line[len(prefix):]
+            http = re.match(rb'HTTP Error ([1-5][0-9]{2}):', reason)
+            value['http_status'] = int(http[1]) if http else None
+            fixed = {
+                b'budget cannot hold pinned downloads': 'download_budget',
+                b'free disk space is below the explicit budget': 'free_disk_budget',
+                b'verified wheel expansion exceeds explicit disk budget': 'wheel_expansion_budget',
+                b'provisioning deadline expired': 'deadline',
+                b'unapproved artifact URL/redirect': 'redirect_refused',
+                b'download size header mismatch': 'download_length',
+                b'truncated artifact': 'download_truncated',
+                b'artifact exceeds pinned size': 'download_length',
+                b'artifact SHA256 mismatch': 'download_hash',
+                b'shard changed': 'shard_hash',
+                b'shard file changed': 'shard_file',
+                b'shard file grew': 'shard_file',
+                b'sharded weights raw concatenation mismatch': 'aggregate_hash',
+            }
+            category = fixed.get(reason, 'other_refusal')
+            for marker, label in ((b'HTTP Error ', 'http'), (b'<urlopen error ', 'network'),
+                                  (b'[Errno 28]', 'disk_full'), (b'[Errno 13]', 'permission'),
+                                  (b'[Errno 12]', 'memory')):
+                if reason.startswith(marker):
+                    category = label
+            if reason in (b'timed out', b'The read operation timed out'):
+                category = 'network_timeout'
+            if reason.startswith(b'Command ') and b' returned non-zero exit status ' in reason:
+                category = 'runtime_subprocess'
+            value['failure_class'] = category
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, KeyError, TypeError):
+        value['log_state'] = 'invalid'
+    return value
+
+
 def module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
     value = importlib.util.module_from_spec(spec)
@@ -248,6 +327,7 @@ def guest(args):
     private = module(SOURCE / 'tests/integration/agent-private-conversation.py', 'opencode_private')
     train = private.TRAIN
     before, provision, created = None, None, []
+    provision_stage, provision_pins, provision_wait_timeout = None, None, False
     report = dict(version=1, kind='opencode-real-inference-guest', passed=False, phase='packages',
         failure=None, core_revision=profile['core_revision'], input_manifest_sha256=digest(INPUT / 'INPUTS.json'),
         code_contains_uncommitted_changes=True, model_profile=profile['model_profile'], actual_model_provisioned=False,
@@ -271,15 +351,25 @@ def guest(args):
                            cwd=SOURCE, env=build_env, stdout=log, stderr=log, timeout=1200, check=True)
         report['core_binary_sha256'] = digest(private.CLI)
         report['phase'] = 'model-provision'
+        provision_stage = 'pins'
+        model = module(private.ML / 'provision.py', 'opencode_model_provision')
+        provision_pins = model.load_pins(profile['model_profile'])
+        provision_stage = 'launch'
         with (BASE / 'provision.log').open('xb') as log:
             provision = subprocess.Popen([sys.executable, '-B', str(private.ML / 'provision.py'),
                 '--execute', '--yes', '--disposable-guest', '--model-profile', profile['model_profile'],
                 '--root', str(BASE / 'ml'), '--budget-bytes', str(profile['provision_budget_bytes'])],
                 stdout=log, stderr=log, start_new_session=True, env=ENV)
-            require(provision.wait(timeout=1850) == 0, 'provision_failed')
+            provision_stage = 'process'
+            try:
+                require(provision.wait(timeout=1850) == 0, 'provision_failed')
+            except subprocess.TimeoutExpired:
+                provision_wait_timeout = True
+                raise
+        provision_stage = 'report'
         observed = load(BASE / 'ml/provision-report.json')
-        model = module(private.ML / 'provision.py', 'opencode_model_provision')
-        pins = model.load_pins(profile['model_profile'])
+        provision_stage = 'provenance'
+        pins = provision_pins
         retained, lock = model.retained_pin_files(pins)
         expected = dict(model_id=pins['model_id'], revision=pins['revision'], model_profile=profile['model_profile'],
             download_bytes=model.download_total(pins), budget_bytes=profile['provision_budget_bytes'], installed_wheels=len(pins['wheels']),
@@ -288,6 +378,7 @@ def guest(args):
                 and observed['runtime_autofetch_enabled'] is False
                 and {key: observed[key] for key in expected} == expected, 'model_provenance')
         report['actual_model_provisioned'], report['model_provision'] = True, expected
+        provision_stage = 'complete'
         report['phase'] = 'core-start'
         (BASE / 'work').mkdir(mode=0o700)
         created.append(CORE_UNIT)
@@ -343,6 +434,9 @@ def guest(args):
         report['failure'] = 'stage_failed'
     finally:
         report['provision_group_joined'] = private.stop_client(provision)
+        if provision_stage is not None:
+            report['model_provision_diagnostic'] = closed_provision(BASE / 'provision.log', provision_pins,
+                provision_stage, provision.returncode if provision is not None else None, provision_wait_timeout)
         # The original worker monitor owns descendants; stopping the complete
         # cgroup joins nested native/model processes, not just their leaders.
         for name in reversed(created):

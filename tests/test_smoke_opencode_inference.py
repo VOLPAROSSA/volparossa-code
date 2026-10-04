@@ -148,6 +148,106 @@ class Contracts(unittest.TestCase):
         self.assertEqual(TRIAL.closed_exception(ValueError('qemu_exited'))['reason'], 'qemu_exited')
         self.assertEqual(TRIAL.closed_exception(ValueError('/private/canary'))['reason'], 'unclassified')
 
+    def provision_log(self, root, content):
+        path = Path(root) / 'private-provision.log'
+        path.write_bytes(content)
+        path.chmod(0o600)
+        return path
+
+    def test_provision_progress_is_exact_pin_order_not_download_completion(self):
+        pins = dict(wheels=[dict(path='public-wheel.whl', bytes=20)],
+                    files=[dict(path='public-shard.safetensors', bytes=40)])
+        raw = b'{"downloading": "public-wheel.whl", "bytes": 20}\n' \
+              b'{"downloading": "public-shard.safetensors", "bytes": 40}\n' \
+              b'Provisioning refused: download size header mismatch\n'
+        with tempfile.TemporaryDirectory() as root:
+            result = TRIAL.closed_provision(self.provision_log(root, raw), pins, 'process', 1)
+        self.assertEqual(result['download_starts'], 2)
+        self.assertEqual(result['last_artifact_index'], 1)
+        self.assertEqual(result['progress_state'], 'ordered')
+        self.assertEqual(result['failure_class'], 'download_length')
+        self.assertEqual(result['process_status'], 1)
+        self.assertEqual(result['stage'], 'process')
+        self.assertNotIn('public-shard', json.dumps(result))
+        self.assertNotIn('downloads_complete', result)
+
+    def test_provision_rejects_unknown_duplicate_reordered_or_wrong_size_progress(self):
+        pins = dict(wheels=[dict(path='first.whl', bytes=20)], files=[dict(path='second.bin', bytes=40)])
+        first = b'{"downloading": "first.whl", "bytes": 20}\n'
+        for raw in (b'{"downloading": "private-canary", "bytes": 20}\n',
+                    b'{"downloading": "second.bin", "bytes": 40}\n',
+                    b'{"downloading": "first.whl", "bytes": 21}\n', first + first,
+                    b'{"downloading": "first.whl", "bytes": 20, "secret": "private-canary"}\n',
+                    b'{"downloading": invalid-json\n'):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                result = TRIAL.closed_provision(self.provision_log(root, raw), pins, 'process', 1)
+                self.assertEqual(result['progress_state'], 'invalid')
+                self.assertLessEqual(result['download_starts'], 1)
+                self.assertNotIn('private-canary', json.dumps(result))
+
+    def test_provision_error_classes_never_export_raw_urls_paths_or_subprocess_commands(self):
+        for raw, category in (
+            (b'free disk space is below the explicit budget', 'free_disk_budget'),
+            (b'verified wheel expansion exceeds explicit disk budget', 'wheel_expansion_budget'),
+            (b'unapproved artifact URL/redirect', 'redirect_refused'),
+            (b'HTTP Error 403: https://private-canary.invalid/token=secret', 'http'),
+            (b'<urlopen error private-canary>', 'network'),
+            (b'[Errno 28] No space left on device: /private-canary', 'disk_full'),
+            (b'Command [private-canary] returned non-zero exit status 1.', 'runtime_subprocess'),
+            (b'The read operation timed out', 'network_timeout'),
+            (b'private-canary unexpected error', 'other_refusal'),
+        ):
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as root:
+                path = self.provision_log(root, b'Provisioning refused: ' + raw + b'\n')
+                result = TRIAL.closed_provision(path, dict(wheels=[], files=[]), 'process', 1)
+                self.assertEqual(result['failure_class'], category)
+                self.assertNotIn('private-canary', json.dumps(result))
+                self.assertNotIn('token', json.dumps(result))
+
+    def test_provision_retains_only_valid_numeric_http_status(self):
+        for raw, expected in ((b'HTTP Error 403: private-canary', 403),
+                              (b'HTTP Error 429: private-canary', 429),
+                              (b'HTTP Error 503: private-canary', 503),
+                              (b'HTTP Error 99: private-canary', None),
+                              (b'HTTP Error 600: private-canary', None),
+                              (b'HTTP Error 4030: private-canary', None),
+                              (b'private-canary HTTP Error 403:', None)):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                path = self.provision_log(root, b'Provisioning refused: ' + raw + b'\n')
+                result = TRIAL.closed_provision(path, None, 'process', 1)
+                self.assertEqual(result['http_status'], expected)
+                self.assertNotIn('private-canary', json.dumps(result))
+
+    def test_provision_steps_distinguish_report_and_provenance_without_accepting_a_model(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = self.provision_log(root, b'PINNED_WHEEL_GRAPH_OK\nOFFLINE_CPU_RUNTIME_IMPORT_OK\n')
+            for stage in ('report', 'provenance', 'complete'):
+                result = TRIAL.closed_provision(path, dict(wheels=[], files=[]), stage, 0)
+                self.assertEqual(result['stage'], stage)
+                self.assertEqual(result['process_status'], 0)
+                self.assertTrue(result['wheel_graph_checked'])
+                self.assertTrue(result['runtime_import_checked'])
+                self.assertNotIn('actual_model_provisioned', result)
+            result = TRIAL.closed_provision(path, None, 'private-canary', 999, True)
+            self.assertEqual(result['stage'], 'unknown')
+            self.assertIsNone(result['process_status'])
+            self.assertTrue(result['wait_timeout'])
+
+    def test_provision_log_read_is_bounded_and_does_not_follow_links_or_nonfiles(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = self.provision_log(root, b'PINNED_WHEEL_GRAPH_OK\n' + b'x' * 131073)
+            result = TRIAL.closed_provision(path, None, 'process', -9)
+            self.assertEqual(result['log_state'], 'truncated')
+            self.assertFalse(result['wheel_graph_checked'])
+            self.assertEqual(result['failure_class'], 'unknown')
+            link = Path(root) / 'link'
+            link.symlink_to(path)
+            self.assertEqual(TRIAL.closed_provision(link, None, 'process', 1)['log_state'], 'invalid')
+            path.chmod(0o644)
+            self.assertEqual(TRIAL.closed_provision(path, None, 'process', 1)['log_state'], 'invalid')
+            self.assertEqual(TRIAL.closed_provision(Path(root), None, 'process', 1)['log_state'], 'invalid')
+            self.assertEqual(TRIAL.closed_provision(Path(root) / 'missing', None, 'launch', None)['log_state'], 'absent')
+
     def test_headless_guest_retains_verified_vga_and_live_pid_without_more_resources(self):
         args = TRIAL.qemu_command(Path('/verified/tools'), Path('/new/private/scratch'))
         self.assertIn('VGA,id=video0,bus=pcie.0,addr=0x1,romfile=/verified/tools/root/usr/share/seabios/vgabios-stdvga.bin', args)

@@ -121,9 +121,9 @@ class Contracts(unittest.TestCase):
             self.assertEqual({p.name for p in result.iterdir()}, {'ci-source.json', 'vm-result.json'})
             self.assertNotIn('sentinel', ''.join(p.read_text() for p in result.iterdir()))
 
-    def test_default_guest_keeps_reviewed_task_and_acceptance_with_profile_substitution_only(self):
-        # Resolve only the explicit default-profile substitutions and remove the
-        # new profile-identity guard. Every other guest statement must still be
+    def test_default_guest_keeps_reviewed_task_and_acceptance_with_closed_diagnostics(self):
+        # Resolve only explicit profile substitutions and closed diagnostics.
+        # Every other guest statement must still be
         # the reviewed 44022c8/afdb284 behavior, including its final success gate.
         current = (ROOT / 'scripts/smoke_opencode_inference.py').read_text()
         node = next(node for node in ast.parse(current).body
@@ -134,6 +134,31 @@ class Contracts(unittest.TestCase):
         self.assertIn(selection, source)
         self.assertIn(guard, source)
         source = source.replace(selection, '').replace(guard, '')
+        diagnostic_changes = (
+            ('    provision_stage, provision_pins, provision_wait_timeout = None, None, False\n', ''),
+            ("        provision_stage = 'pins'\n"
+             "        model = module(private.ML / 'provision.py', 'opencode_model_provision')\n"
+             "        provision_pins = model.load_pins(profile['model_profile'])\n"
+             "        provision_stage = 'launch'\n", ''),
+            ("            provision_stage = 'process'\n"
+             "            try:\n"
+             "                require(provision.wait(timeout=1850) == 0, 'provision_failed')\n"
+             "            except subprocess.TimeoutExpired:\n"
+             "                provision_wait_timeout = True\n"
+             "                raise\n",
+             "            require(provision.wait(timeout=1850) == 0, 'provision_failed')\n"),
+            ("        provision_stage = 'report'\n", ''),
+            ("        provision_stage = 'provenance'\n        pins = provision_pins\n",
+             "        model = module(private.ML / 'provision.py', 'opencode_model_provision')\n"
+             "        pins = model.load_pins(profile['model_profile'])\n"),
+            ("        provision_stage = 'complete'\n", ''),
+            ("        if provision_stage is not None:\n"
+             "            report['model_provision_diagnostic'] = closed_provision(BASE / 'provision.log', provision_pins,\n"
+             "                provision_stage, provision.returncode if provision is not None else None, provision_wait_timeout)\n", ''),
+        )
+        for diagnostic, original in diagnostic_changes:
+            self.assertEqual(source.count(diagnostic), 1)
+            source = source.replace(diagnostic, original)
         for key, original in (('core_revision', 'CORE'), ('model_profile', 'MODEL'),
                               ('provision_budget_bytes', '5 * GIB'), ('core_memory_bytes', '5 * GIB')):
             source = source.replace("profile['" + key + "']", original)
