@@ -314,8 +314,9 @@ Code `54af18cc5d30a880e3be298192af150daf01b805` (tree
 `eef18e2ce8c135e6daab29dbc80fbbd086f85d5a`), core
 `2a1b4ad347b7d9f12a6a4c2beee40ff8706bd477` (tree
 `cb999c2ae1419407211e97ba05366d9c6a4301ab`) and unchanged public driver
-`f27576ebd7e7ded2f1319186f34df87f48e970d7`. All eight providers were observed
-after 235 inventory queries. The real Qwen0.6B worker on relay4 returned its
+`f27576ebd7e7ded2f1319186f34df87f48e970d7`. All eight expected relay/exit
+advertisements were observed after 235 inventory queries. The real Qwen0.6B
+worker on relay4 returned its
 original EOS-complete 31-byte replacement after 12 tokens. The fixture's
 original tests failed before the edit; the separately approved edit/check and
 unchanged original tests plus independent check then passed. No local planner
