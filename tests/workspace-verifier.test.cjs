@@ -9,7 +9,27 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const {EventEmitter} = require('node:events');
 const {PassThrough} = require('node:stream');
-const {createWorkspaceVerifier} = require('../src/workspace-verifier.cjs');
+const {createRequire, wrap} = require('node:module');
+const {runInThisContext} = require('node:vm');
+
+// These tests already replace the child process. Model the corresponding bwrap
+// metadata too: the source-contract runner need not install an unused binary.
+// All other filesystem operations remain real. Production and the actual bwrap
+// smoke load the ordinary module and retain real executable ownership checks.
+const implementation = require.resolve('../src/workspace-verifier.cjs');
+const sandbox = '/usr/bin/bwrap';
+const sandboxInfo = Object.freeze({uid: 0, mode: 0o100755, dev: 1, ino: 17,
+  size: 1024, mtimeMs: 1, ctimeMs: 1, isFile: () => true});
+const unitFs = {...fs,
+  realpathSync: (file, ...args) => file === sandbox ? sandbox : fs.realpathSync(file, ...args),
+  statSync: (file, ...args) => file === sandbox ? sandboxInfo : fs.statSync(file, ...args),
+  accessSync: (file, ...args) => file === sandbox ? undefined : fs.accessSync(file, ...args),
+};
+const unitModule = {exports: {}}, dependencies = createRequire(implementation);
+runInThisContext(wrap(fs.readFileSync(implementation, 'utf8')), {filename: implementation})(
+  unitModule.exports, name => name === 'node:fs' ? unitFs : dependencies(name),
+  unitModule, implementation, path.dirname(implementation));
+const {createWorkspaceVerifier} = unitModule.exports;
 
 function workspace(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'volparossa-verifier-test-'));
@@ -96,6 +116,18 @@ test('invalid configurations cannot create a host command path', t => {
     {args: ['x'.repeat(4097)]}, {args: Array(129).fill('x')}, {timeoutMs: 0}, {approve: null}, {workspace: os.homedir()}]) {
     assert.throws(() => createWorkspaceVerifier({...base, ...changes}));
   }
+});
+
+test('the ordinary production loader refuses a missing sandbox without any host-command fallback', t => {
+  const directory = workspace(t), actualRealpath = fs.realpathSync;
+  t.mock.method(fs, 'realpathSync', (file, ...args) => {
+    if (file === sandbox) throw Object.assign(Error('fixture_missing_bwrap'), {code: 'ENOENT'});
+    return actualRealpath(file, ...args);
+  });
+  t.mock.method(cp, 'spawn', () => assert.fail('missing sandbox must never start a command'));
+  const real = require('../src/workspace-verifier.cjs').createWorkspaceVerifier;
+  assert.throws(() => real({workspace: directory, executable: '/usr/bin/true', args: [], approve: () => true}),
+    {code: 'ENOENT'});
 });
 
 test('denial, cancellation and deadline during approval never spawn, including late approval', async t => {
