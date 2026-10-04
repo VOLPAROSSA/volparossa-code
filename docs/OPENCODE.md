@@ -402,6 +402,15 @@ starts—not completed downloads. Raw logs, URLs and error text stay private and
 are removed during cleanup. This does not establish the original failure's
 cause or change any resource limit, coding task or success condition.
 
+New host observations retain all three raw hashes and separately compare the
+IPv6 route multiset excluding only the kernel's reference-count column. Every
+other field and duplicate remains significant; IPv4-route and `resolv.conf`
+bytes must still match exactly. Unknown formats fail the observation without
+skipping VM/scratch cleanup. This checks only the proc-visible routes and DNS
+file, not all host networking or firewall state; it cannot retrospectively
+explain the earlier hash changes. The column definition comes from the
+[Linux IPv6 route emitter](https://github.com/torvalds/linux/blob/v6.12/net/ipv6/ip6_fib.c#L2395-L2423).
+
 The manual `opencode-inference.yml` workflow adds an explicit GitHub-hosted
 Ubuntu 24.04 host-tool profile for that same trial. It requires the dispatched
 Code SHA, a clean checkout, the fixed core revision and newly verified runtime

@@ -466,11 +466,50 @@ def guest(args):
     return 0 if report['passed'] else 1
 
 
+def ipv6_route_configuration(raw):
+    """Strict proc-visible route multiset, excluding only the kernel refcount.
+
+    Linux v6.12 net/ipv6/ip6_fib.c:ipv6_route_native_seq_show emits fib6_ref
+    at zero-based column 6. Column 7 is currently zero; retain it unchanged.
+    https://github.com/torvalds/linux/blob/v6.12/net/ipv6/ip6_fib.c#L2395-L2423
+    """
+    require(len(raw) <= 4 * 1024**2 and (not raw or raw.endswith(b'\n')), 'ipv6_route_format')
+    rows = raw.splitlines()
+    require(len(rows) <= 16384, 'ipv6_route_format')
+    projected = []
+    for row in rows:
+        fields = row.split()
+        require(len(fields) == 10
+                and all(re.fullmatch(rb'[0-9a-f]{32}', fields[i]) for i in (0, 2, 4))
+                and all(re.fullmatch(rb'[0-9a-f]{2}', fields[i])
+                        and int(fields[i], 16) <= 128 for i in (1, 3))
+                and all(re.fullmatch(rb'[0-9a-f]{8}', fields[i]) for i in (5, 6, 7, 8))
+                and re.fullmatch(rb'[^\x00-\x20/\x7f-\xff]{1,15}', fields[9]), 'ipv6_route_format')
+        projected.append(b' '.join(fields[:6] + fields[7:]))
+    # Sort a list, not a set: losing or adding an identical route still differs.
+    canonical = b''.join(row + b'\n' for row in sorted(projected))
+    return dict(format='linux-proc-ipv6-route-v1', excluded_columns=[6], rows=len(rows),
+                sha256=hashlib.sha256(canonical).hexdigest())
+
+
 def host_state():
-    # Unprivileged exact observable state; this runner never invokes host nft,
-    # ip mutation, sysctl or DNS configuration commands.
-    return {name: digest(Path(name)) for name in (
-        '/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf')}
+    # This is not a full route/rule/firewall inventory. No host mutation occurs.
+    with Path('/proc/net/ipv6_route').open('rb') as stream:
+        ipv6 = stream.read(4 * 1024**2 + 1)
+    configuration = ipv6_route_configuration(ipv6)
+    return dict(version=2, scope='proc_visible_routes_and_resolv_conf',
+        raw_sha256={'/proc/net/route': digest(Path('/proc/net/route')),
+                    '/proc/net/ipv6_route': hashlib.sha256(ipv6).hexdigest(),
+                    '/etc/resolv.conf': digest(Path('/etc/resolv.conf'))}, ipv6_routes=configuration)
+
+
+def same_host_configuration(before, after):
+    require(before['version'] == after['version'] == 2
+            and before['scope'] == after['scope'] == 'proc_visible_routes_and_resolv_conf',
+            'host_state_format')
+    return before['ipv6_routes'] == after['ipv6_routes'] and all(
+        before['raw_sha256'][name] == after['raw_sha256'][name]
+        for name in ('/proc/net/route', '/etc/resolv.conf'))
 
 
 def available_memory():
@@ -613,6 +652,7 @@ def execute(args):
         bundle_sha256=digest(args.bundle), bundle_bytes=args.bundle.stat().st_size,
         code_contains_uncommitted_changes=True, memory_mib=profile['guest_memory_mib'], cpus=2, vm_started=False,
         qemu_joined=False, scratch_removed=False, host_observed_routes_dns_unchanged=None,
+        host_raw_route_dns_bytes_unchanged=None, host_observation_scope='proc_visible_routes_and_resolv_conf',
         host_firewall_modified=False, actual_model_execution_proven=False,
         confidential_remote_execution_proven=False)
     if host_tools is not None:
@@ -738,9 +778,15 @@ def execute(args):
             receipt['qemu_joined'] = final.get('ActiveState') in ('inactive', 'failed') and final.get('MainPID') == '0'
         else:
             receipt['qemu_joined'] = True
-        after = host_state()
-        record(args.output / 'host-state-after.json', after)
-        receipt['host_observed_routes_dns_unchanged'] = before == after
+        try:
+            after = host_state()
+            record(args.output / 'host-state-after.json', after)
+            receipt['host_raw_route_dns_bytes_unchanged'] = before['raw_sha256'] == after['raw_sha256']
+            receipt['host_observed_routes_dns_unchanged'] = same_host_configuration(before, after)
+        except (OSError, ValueError, KeyError, TypeError):
+            # An unknown format is not unchanged state; it must not skip cleanup.
+            receipt['host_state_observation_failed'] = True
+            receipt['host_observed_routes_dns_unchanged'] = None
         if receipt['qemu_joined']:
             shutil.rmtree(scratch)
             receipt['scratch_removed'] = not scratch.exists()

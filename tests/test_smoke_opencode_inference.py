@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import io
+import inspect
 import json
 from pathlib import Path
 import tarfile
@@ -258,6 +259,65 @@ class Contracts(unittest.TestCase):
         self.assertFalse(TRIAL.boot_running(dict(ActiveState='active', MainPID='0')))
         self.assertFalse(TRIAL.boot_running(dict(ActiveState='failed', MainPID='123')))
         self.assertTrue(TRIAL.boot_running(dict(ActiveState='active', MainPID='123')))
+
+    def route6(self, **changes):
+        fields = [b'0' * 32, b'00', b'0' * 32, b'00', b'0' * 31 + b'1',
+                  b'00000400', b'00000002', b'00000000', b'00000003', b'eth0']
+        for index, value in changes.items():
+            fields[int(index)] = value
+        return b' '.join(fields) + b'\n'
+
+    def test_ipv6_configuration_ignores_only_reference_count_not_other_fields(self):
+        original = TRIAL.ipv6_route_configuration(self.route6())
+        self.assertEqual(original, TRIAL.ipv6_route_configuration(self.route6(**{'6': b'0000ffff'})))
+        for index, value in ((0, b'1' * 32), (1, b'40'), (2, b'2' * 32), (3, b'80'),
+                             (4, b'3' * 32), (5, b'00000800'), (7, b'00000001'),
+                             (8, b'00000001'), (9, b'eth1')):
+            with self.subTest(index=index):
+                self.assertNotEqual(original, TRIAL.ipv6_route_configuration(self.route6(**{str(index): value})))
+
+    def test_ipv6_configuration_preserves_multiplicity_and_canonicalizes_row_order(self):
+        a, b = self.route6(), self.route6(**{'9': b'eth1'})
+        self.assertEqual(TRIAL.ipv6_route_configuration(a + b), TRIAL.ipv6_route_configuration(b + a))
+        self.assertNotEqual(TRIAL.ipv6_route_configuration(a), TRIAL.ipv6_route_configuration(a + a))
+        self.assertEqual(TRIAL.ipv6_route_configuration(a + a)['rows'], 2)
+        self.assertEqual(TRIAL.ipv6_route_configuration(b'')['rows'], 0)
+
+    def test_ipv6_configuration_refuses_unknown_or_unbounded_format(self):
+        malformed = [self.route6().rstrip(b'\n'), b'\n', b'bad route\n',
+                     self.route6().replace(b'eth0', b'eth0 extra'), self.route6() * 16385,
+                     b'x' * (4 * 1024**2 + 1)]
+        for index, value in ((0, b'0' * 31), (1, b'81'), (3, b'gg'), (5, b'-1'),
+                             (6, b'unknown'), (7, b'100000000'), (8, b'G' * 8),
+                             (9, b'a' * 16), (9, b'/bad'), (9, b'bad\x00')):
+            malformed.append(self.route6(**{str(index): value}))
+        for raw in malformed:
+            with self.subTest(bytes=len(raw)), self.assertRaisesRegex(ValueError, 'ipv6_route_format'):
+                TRIAL.ipv6_route_configuration(raw)
+
+    def test_host_comparison_keeps_exact_ipv4_dns_and_explicit_raw_ipv6_evidence(self):
+        before = dict(version=2, scope='proc_visible_routes_and_resolv_conf',
+            raw_sha256={'/proc/net/route': 'a' * 64, '/proc/net/ipv6_route': 'b' * 64,
+                        '/etc/resolv.conf': 'c' * 64}, ipv6_routes=TRIAL.ipv6_route_configuration(self.route6()))
+        after = dict(before, raw_sha256=dict(before['raw_sha256'], **{'/proc/net/ipv6_route': 'd' * 64}))
+        self.assertTrue(TRIAL.same_host_configuration(before, after))
+        self.assertNotEqual(before['raw_sha256'], after['raw_sha256'])
+        for name in ('/proc/net/route', '/etc/resolv.conf'):
+            changed = dict(before, raw_sha256=dict(before['raw_sha256'], **{name: 'e' * 64}))
+            self.assertFalse(TRIAL.same_host_configuration(before, changed))
+        changed = dict(before, ipv6_routes=TRIAL.ipv6_route_configuration(self.route6(**{'8': b'00000001'})))
+        self.assertFalse(TRIAL.same_host_configuration(before, changed))
+        with self.assertRaisesRegex(ValueError, 'host_state_format'):
+            TRIAL.same_host_configuration(before, dict(before, version=1))
+
+    def test_host_observation_failure_is_guarded_before_scratch_cleanup(self):
+        source = inspect.getsource(TRIAL.execute)
+        observation = source[source.index('        try:\n            after = host_state()'):]
+        self.assertLess(observation.index('except (OSError, ValueError, KeyError, TypeError):'),
+                        observation.index("if receipt['qemu_joined']:"))
+        self.assertIn("receipt['host_observed_routes_dns_unchanged'] = None", observation)
+        self.assertIn('shutil.rmtree(scratch)', observation)
+        self.assertIn("and receipt['host_observed_routes_dns_unchanged'] is True", observation)
 
 
 if __name__ == '__main__':
