@@ -391,7 +391,11 @@ KVM trial; it does not install or run the model on the development host. Its
 archive selected by its explicit model profile. The default Qwen3-0.6B profile
 retains core `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`; the separate
 `qwen3-4b-instruct-2507-v1` candidate binds core
-`1fba2a322252eeec9efb7ccdca9e04359a486889`. A dirty source capture is
+`f25352dfbbbf98d1a1fcbbd43f6a91897d73f303`. This includes the bounded
+provisioning-timeout recovery from core `3aa0e2d0` and existing closed worker
+diagnostics. The previous `37209881216` attempt remains failed before model
+execution; this pin refresh does not prove native coding or planner success.
+A dirty source capture is
 labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
 only that pinned profile using the existing guarded core provisioner.
 
