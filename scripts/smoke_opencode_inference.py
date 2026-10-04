@@ -32,7 +32,7 @@ MODEL = 'qwen3-0.6b-v1'
 GIB = 1024 ** 3
 LARGE_MODEL = 'qwen3-4b-instruct-2507-v1'
 # Separate reviewed source; the default profile retains its original core pin.
-LARGE_CORE = 'f25352dfbbbf98d1a1fcbbd43f6a91897d73f303'
+LARGE_CORE = '1297f8f1a5d163d802efd066c51a950b95588fa5'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'

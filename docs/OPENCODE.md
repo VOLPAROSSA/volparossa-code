@@ -266,6 +266,15 @@ is still rejected. The immutable driver, real model, question, original tests,
 deadlines and success criteria remain unchanged. Passing fixture/socket checks
 is not yet evidence that this revised live trial passes.
 
+The next [public trial `37216555196`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37216555196)
+failed before Connect or model submission: its 60-second discovery barrier never
+observed all eight required advertisements. The last of 552 valid queries lacked
+relay0/5 and both exits. Cleanup passed, but the retained snapshot does not explain
+the missing advertisements. The follow-up core
+`1297f8f1a5d163d802efd066c51a950b95588fa5` diagnostic retains only fixed
+role-presence/status/event summaries from existing cleanup captures, not raw
+identities, endpoints or logs. It does not relax discovery or route requirements.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 
@@ -407,10 +416,22 @@ KVM trial; it does not install or run the model on the development host. Its
 archive selected by its explicit model profile. The default Qwen3-0.6B profile
 retains core `845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3`; the separate
 `qwen3-4b-instruct-2507-v1` candidate binds core
-`f25352dfbbbf98d1a1fcbbd43f6a91897d73f303`. This includes the bounded
+`1297f8f1a5d163d802efd066c51a950b95588fa5`. This includes the bounded
 provisioning-timeout recovery from core `3aa0e2d0` and existing closed worker
 diagnostics. The previous `37209881216` attempt remains failed before model
-execution; this pin refresh does not prove native coding or planner success.
+execution. [Trial `37217032474`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37217032474)
+on the previous core `f25352df` completed the pinned 4B provisioning and returned one actual model result,
+but the native task failed at `invalid_output` after 152,995 ms. No tools, edits
+or checks ran; the original source remained unchanged. Runtime/guest cleanup and
+normalized host routes/DNS checks passed, while raw host-route bytes differed.
+The raw model text and rejection subtype were not retained; neither a precise
+parse cause nor useful model-guided coding is established by this result.
+The new core accepts the pinned native template's assistant preface followed by
+one complete tagged tool proposal, while retaining strict JSON, offered-tool,
+EOS, resource and owner-approval checks. This is a demonstrated adapter
+compatibility fix, not a proven explanation of that failed result. Its opt-in
+closed diagnostics distinguish rejection categories without retaining private
+model text; repeated validation observations do not count as extra executions.
 A dirty source capture is
 labelled as such, not attributed to an unchanged Git HEAD. The guest provisions
 only that pinned profile using the existing guarded core provisioner.
