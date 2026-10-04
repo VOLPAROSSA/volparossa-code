@@ -6,7 +6,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {execFileSync} = require('node:child_process');
-const {createHash} = require('node:crypto');
 const {runtimeSettings, COMMIT, VERSION, MODEL} = require('../src/opencode-config.cjs');
 const input = {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64), password: 'b'.repeat(64)};
 test('pinned runtime uses only core provider with separate one-shot tool boundaries', () => {
@@ -29,11 +28,12 @@ test('pinned runtime uses only core provider with separate one-shot tool boundar
   assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false);
 });
 test('legacy 0.6B defaults, prompts and permissions remain byte-identical', () => {
-  const hashes = ['f9d6b23b1a13577d6dcea542f87b0029c13f872f8d8b30d2fc44afabcde43584',
-    '51506fc98a31bff27c8c65137a042ee799ce1482b8a00f0c47fa6c6e7bad4ac8'];
+  const golden = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/opencode-default-settings.json'), 'utf8'));
   for (const cooperative of [false, true]) {
-    assert.equal(createHash('sha256').update(JSON.stringify(runtimeSettings({...input, cooperative})))
-      .digest('hex'), hashes[Number(cooperative)]);
+    // Direct exact bytes, including key order and the synthetic environment;
+    // this regression fixture is not a password-storage or authentication hash.
+    assert.equal(JSON.stringify(runtimeSettings({...input, cooperative})),
+      JSON.stringify(golden[cooperative ? 'cooperative' : 'default']));
   }
 });
 test('4B settings use only the exact core-selected profile without changing task or tool policy', () => {
