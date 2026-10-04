@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const { test } = require('node:test');
 const { validateConversation, PrivateConversation } = require('../src/private-conversation.cjs');
+const { terminalCleanupConfirmed } = require('../src/private-compute.cjs');
 const { caps, input, result, frame, reply, fixture } = require('./conversation-fixture.cjs');
 
 test('actual framed socket uses separate handshake and yields exact cleanup-confirmed conversation result', async t => {
@@ -111,12 +112,59 @@ test('cancellation acknowledgement does not settle until the exact task cleanup 
   await f.client.connect();
   const controller = new AbortController();
   const pending = f.client.submit(input(), { signal: controller.signal });
-  const rejected = assert.rejects(pending, { code: 'cancelled' });
+  const rejected = assert.rejects(pending, error => {
+    assert.equal(error.code, 'cancelled');
+    assert.equal(terminalCleanupConfirmed(error), true);
+    return true;
+  });
   controller.abort();
   const finish = await ready;
   let settled = false; pending.catch(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
   finish(); await rejected;
+});
+
+test('cleanup receipt belongs only to the validated rejected request, never its error code alone', async t => {
+  let submitted = 0;
+  const f = await fixture(t, (socket, request) => {
+    if (++submitted === 1) reply(socket, request, 'admitted');
+    reply(socket, request, 'error', {code: 'execution_failed'});
+  });
+  await f.client.connect();
+  let first;
+  await assert.rejects(f.client.submit(input()), error => {
+    first = error; assert.equal(error.code, 'execution_failed');
+    assert.equal(terminalCleanupConfirmed(error), true); return true;
+  });
+  await assert.rejects(f.client.submit(input()), error => {
+    assert.equal(error.code, 'execution_failed');
+    assert.equal(terminalCleanupConfirmed(error), false); return true;
+  });
+  assert.equal(terminalCleanupConfirmed({...first, cleanupConfirmed: true}), false);
+  assert.equal(terminalCleanupConfirmed(Error(first.message)), false);
+  assert.equal(terminalCleanupConfirmed(null), false);
+  assert.equal(terminalCleanupConfirmed(first), true);
+});
+
+test('cancellation racing a valid result keeps its cleanup receipt without returning the answer', async t => {
+  let task, finish;
+  const cancelled = new Promise(resolve => { finish = resolve; });
+  const f = await fixture(t, (socket, request) => {
+    if (request.operation.type === 'submit_conversation') { task = request; reply(socket, request, 'admitted'); }
+    else {
+      reply(socket, request, 'cancel_requested', {task_id: task.id});
+      finish(() => reply(socket, task, 'result', {result: result()}));
+    }
+  });
+  await f.client.connect();
+  const controller = new AbortController();
+  const pending = f.client.submit(input(), {signal: controller.signal});
+  const rejected = assert.rejects(pending, error => {
+    assert.equal(error.code, 'cancelled');
+    assert.equal(terminalCleanupConfirmed(error), true); return true;
+  });
+  controller.abort();
+  (await cancelled)(); await rejected;
 });
 
 test('conversation inherits exact owned socket/parent boundary and rejects false result correlation', async t => {

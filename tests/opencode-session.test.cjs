@@ -7,10 +7,12 @@ const {PassThrough} = require('node:stream');
 const {EventEmitter} = require('node:events');
 const {runSession} = require('../scripts/opencode_session.cjs');
 const {readFrames, writeFrame, emptyProviderDiagnostic, emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
+const {startChatCompletionsProvider} = require('../src/chat-completions-provider.cjs');
+const {fixture: coreFixture, caps, result: coreResult, reply} = require('./conversation-fixture.cjs');
 
 function fixture(Task, receive, options = {}) {
   const input = new PassThrough(), output = new PassThrough(), events = new EventEmitter(), observed = [];
-  const provider = {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64),
+  const provider = options.provider ?? {baseUrl: 'http://127.0.0.1:1234/v1', bearerToken: 'a'.repeat(64),
     diagnostics: {summary: emptyProviderDiagnostic()},
     observations: options.observations ?? {submitted: 0, cleanup_confirmed: 0},
     async close() { observed.push('provider-close'); if (options.badCleanup) throw Error('private detail'); }};
@@ -77,6 +79,38 @@ test('unconfirmed provider cleanup produces failed owner exit after a generated 
   class Task { async run() { return result; } }
   const f = fixture(Task, (_value, input) => input.end(), {badCleanup: true});
   assert.equal(await f.done, 1); assert(f.observed.includes('SIGTERM'));
+});
+
+test('owner cleanup accepts an actual provider retry after a correlated reaped failure', async t => {
+  const model = 'qwen3-0.6b-v1';
+  let attempts = 0;
+  const core = await coreFixture(t, (socket, request) => {
+    reply(socket, request, 'admitted');
+    if (++attempts === 1) reply(socket, request, 'error', {code: 'execution_failed'});
+    else reply(socket, request, 'result', {result: coreResult(undefined, model)});
+  }, {...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1']});
+  const provider = await startChatCompletionsProvider({socketPath: core.socketPath, model, diagnostics: true});
+  class Task {
+    async run() {
+      for (const status of [503, 200]) {
+        const response = await fetch(provider.baseUrl + '/chat/completions', {
+          method: 'POST', headers: {'content-type': 'application/json', authorization: `Bearer ${provider.bearerToken}`},
+          body: JSON.stringify({model, messages: [{role: 'user', content: 'Synthetic protocol input.'}]}),
+          signal: AbortSignal.timeout(3000),
+        });
+        assert.equal(response.status, status); await response.json();
+      }
+      return result;
+    }
+  }
+  try {
+    const f = fixture(Task, (value, input) => {
+      assert.equal(value.type, 'result'); input.end();
+    }, {provider});
+    assert.equal(await f.done, 0);
+    assert.deepEqual(provider.observations, {submitted: 2, completed: 1, incomplete: 0, cleanup_confirmed: 2});
+    assert.ok(f.observed.includes('SIGTERM'));
+  } finally { await provider.close(); }
 });
 test('cancellation resolves pending approval without granting the operation', async () => {
   class Task {

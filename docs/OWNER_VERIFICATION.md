@@ -118,5 +118,14 @@ on Code `d6ec3146c646c89eb0f38992f9908accd969af92` failed: it observed one
 completed native read, two core provider requests (one function-call result and
 one assistant response), no edit/bash, an unchanged fixture and a failed final
 independent check. Both core requests confirmed cleanup. This did not prove that
-greedy generation fixes premature completion; this new owner-verification slice
-has not yet been tried with a real model and does not relabel that result.
+greedy generation fixes premature completion.
+
+Owner verification was subsequently exercised with the real model in
+[`37076283235`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37076283235),
+Code `40d89016c3e0155f054026c5553b5e8224b9cf9f`, with the same pinned core and
+unchanged initial task and acceptance criteria. Three actual checks failed and
+their feedback produced two continuations in the same session. The model made
+one read call, no edit or test command, and left the fixture unchanged. The final
+independent check failed. This proves that the verification/continuation path was
+used, **not** that it repaired the task. The reported cleanup-accounting defect
+and original artifact identity are recorded in [OpenCode trial evidence](OPENCODE.md#disposable-execution).

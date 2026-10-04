@@ -12,6 +12,7 @@ const { PrivateConversation, validateConversation, expectedLimits, check, keys, 
   identifier, object, fail } = require('./private-conversation.cjs');
 const { parseJson } = require('./responses-provider.cjs');
 const { PROVIDER_ERRORS, emptyProviderDiagnostic } = require('./opencode-bridge.cjs');
+const { terminalCleanupConfirmed } = require('./private-compute.cjs');
 
 const HTTP_BYTES = 524288;
 const EXECUTION = Object.freeze({ scope: 'private_local', distributed: false,
@@ -280,6 +281,10 @@ async function startChatCompletionsProvider({ socketPath, model, diagnostics = f
         response.end(streaming ? streamChunks(answer, requestBody.stream_options?.include_usage === true)
           .map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n' : JSON.stringify(answer));
       } catch (error) {
+        if (terminalCleanupConfirmed(error)) {
+          observed.cleanup_confirmed++;
+          if (diagnostics) count(summary, 'cleanup_confirmed');
+        }
         const code = error.message?.startsWith('private_compute_') ? error.code : 'provider_failed';
         if (diagnostics) count(summary.request_errors, PROVIDER_ERRORS.includes(code) ? code : 'other');
         // These two errors follow a terminal, cleanup-confirmed model result.

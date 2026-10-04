@@ -19,6 +19,10 @@ const REMOTE_ERRORS = new Set([
   'invalid_request', 'handshake_required', 'busy', 'no_such_task',
   'cancelled', 'execution_failed', 'cleanup_unconfirmed',
 ]);
+// Local, per-rejection provenance, never a peer/model-supplied flag. A checked
+// terminal failure can confirm cleanup without being a successful execution.
+const cleanedFailures = new WeakSet();
+function terminalCleanupConfirmed(error) { return object(error) && cleanedFailures.has(error); }
 
 function failure(code) {
   const error = new Error(`private_compute_${code}`);
@@ -290,6 +294,13 @@ class PrivateCompute {
         return;
       }
       requireValue(message.id === this.pending?.id);
+      // private-serve v1 emits these only after the admitted execution returns
+      // through cleanup. Uncertainty takes precedence as cleanup_unconfirmed.
+      // Do not infer this receipt from an error code before admission or from a
+      // transport failure that merely has the same message.
+      if (this.pending.admitted && ['execution_failed', 'cancelled'].includes(message.code)) {
+        cleanedFailures.add(error);
+      }
       this._settle(error);
       return;
     }
@@ -326,6 +337,9 @@ class PrivateCompute {
     const pending = this.pending;
     this.pending = null;
     if (!pending) return;
+    // A local cancellation can win after a fully validated result has arrived.
+    // Preserve the cancellation, but retain that exact result's cleanup receipt.
+    if (error && answer !== undefined && pending.admitted) cleanedFailures.add(error);
     clearTimeout(pending.timer);
     pending.signal?.removeEventListener('abort', pending.abort);
     if (error) pending.reject(error);
@@ -355,4 +369,4 @@ class PrivateCompute {
   }
 }
 
-module.exports = { PrivateCompute };
+module.exports = { PrivateCompute, terminalCleanupConfirmed };

@@ -283,6 +283,44 @@ test('transient core failures keep their retryable status without claiming a com
       assert.equal(f.provider.diagnostics.summary.completed, 0);
       assert.equal(f.provider.diagnostics.summary.incomplete, 0);
       assert.equal(f.provider.diagnostics.summary.request_errors[code], 1);
+      assert.equal(f.provider.observations.cleanup_confirmed, code === 'execution_failed' ? 1 : 0);
+    } finally { await f.provider.close(); }
+  }
+});
+
+test('reaped execution failure followed by success accounts for both cleanups, not two model results', async t => {
+  let attempts = 0;
+  const f = await start(t, (socket, message) => {
+    reply(socket, message, 'admitted');
+    if (++attempts === 1) reply(socket, message, 'error', {code: 'execution_failed'});
+    else reply(socket, message, 'result', {result: result(undefined, MODEL)});
+  }, true);
+  try {
+    assert.equal((await send(f.provider, request())).status, 503);
+    assert.equal((await send(f.provider, request())).status, 200);
+    assert.deepEqual(f.provider.observations, {submitted: 2, completed: 1, incomplete: 0, cleanup_confirmed: 2});
+    const summary = f.provider.diagnostics.summary;
+    assert.equal(summary.cleanup_confirmed, 2);
+    assert.equal(summary.request_errors.execution_failed, 1);
+    assert.deepEqual(summary.results, {assistant: 1, function_call: 0, incomplete: 0});
+    assert.equal(f.provider.diagnostics.records.length, 1);
+  } finally { await f.provider.close(); }
+});
+
+test('unadmitted, uncertain, unknown or uncorrelated failures never count as confirmed cleanup', async t => {
+  for (const kind of ['unadmitted', 'cleanup_unconfirmed', 'invalid_request', 'unknown', 'wrong-id', 'disconnect']) {
+    const f = await start(t, (socket, message) => {
+      if (kind !== 'unadmitted') reply(socket, message, 'admitted');
+      if (kind === 'disconnect') { socket.destroy(); return; }
+      reply(socket, kind === 'wrong-id' ? {...message, id: 'f'.repeat(32)} : message, 'error', {
+        code: ['unadmitted', 'wrong-id'].includes(kind) ? 'execution_failed' : kind,
+      });
+    }, true);
+    try {
+      assert.notEqual((await send(f.provider, request())).status, 200);
+      assert.equal(f.provider.observations.cleanup_confirmed, 0, kind);
+      assert.equal(f.provider.diagnostics.summary.cleanup_confirmed, 0, kind);
+      assert.equal(f.provider.observations.completed, 0);
     } finally { await f.provider.close(); }
   }
 });
@@ -325,7 +363,8 @@ test('HTTP disconnect cancels the exact task and holds the execution slot until 
     const finish = await cancelled;
     assert.equal((await send(f.provider, request())).status, 503);
     finish();
-    await new Promise(resolve => setImmediate(resolve));
+    await f.provider.close();
+    assert.deepEqual(f.provider.observations, {submitted: 1, completed: 0, incomplete: 0, cleanup_confirmed: 1});
     assert.deepEqual(f.requests.map(row => row.operation.type), ['conversation_capabilities', 'submit_conversation', 'cancel']);
   } finally { await f.provider.close(); }
 });

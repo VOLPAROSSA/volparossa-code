@@ -88,6 +88,13 @@ separate failures; this change does not make an incomplete answer usable.
 An already reported, known terminal task failure is separate from runtime cleanup:
 the task still fails, while a confirmed session/provider/process shutdown can
 succeed. Unknown/protocol errors and any unconfirmed cleanup still fail closed.
+The provider also counts cleanup for a correlated, admitted task ending with
+the core's terminal `execution_failed` or `cancelled` response, or a valid result
+that races local cancellation. These remain failed requests, not model results.
+The receipt is retained per rejection inside the checked transport; an error code
+alone, admission alone, a cancellation acknowledgement or a disconnect cannot
+establish cleanup. This prevents a later native retry from turning a safely
+reaped failed attempt into a false runtime-cleanup mismatch.
 Cancellation reaches the core and owned session tree. Cleanup uncertainty remains
 an error even when text was generated.
 
@@ -323,6 +330,26 @@ closed diagnostics do not identify the malformed output shape; raw output was
 not exported. The parallel-prompt conflict above is a verified integration issue,
 **not a proven explanation of this particular failure**. Its correction still
 requires a new real-model trial; VM04 remains failed.
+
+The owner-verification trial
+[`37076283235`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37076283235)
+on Code `40d89016c3e0155f054026c5553b5e8224b9cf9f` and core
+`845cc84d0d0b766ab1c5227231dbf6c8eaeb8cc3` also **failed**. Three actual owner
+checks and two same-session continuations ran, but only one native read completed;
+no edit or test command was requested, the fixture was unchanged and the final
+independent check failed. Five core requests produced one execution failure and
+four results: one function call and three assistant responses. The report did not
+export model text, so it does not establish why the model stopped without editing.
+
+That original report also marks runtime cleanup unconfirmed: its provider counted
+only the four successful-result cleanups, not the first admitted terminal
+execution failure. The transport accounting correction above preserves that
+failure while retaining its actual cleanup receipt. Socket/provider regressions
+exercise the correction; they do not retroactively change the failed trial or
+prove coding success. Guest private state and owned units were removed, QEMU was
+joined and its scratch removed; the outer host route/DNS comparison was false,
+so this run is not evidence of unchanged host state. Original artifact ZIP SHA-256:
+`9ac899f449239debc07817df803216891639836c03e3b8533e71e315399eccf9`.
 
 The manual `opencode-inference.yml` workflow adds an explicit GitHub-hosted
 Ubuntu 24.04 host-tool profile for that same trial. It requires the dispatched
