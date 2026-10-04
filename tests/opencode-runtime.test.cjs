@@ -6,9 +6,26 @@ const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const {PassThrough, Writable} = require('node:stream');
 const {configuration, ownedOpenCode} = require('../src/opencode-runtime.cjs');
-const {readFrames, writeFrame, emptyProviderDiagnostic, emptyTaskDiagnostic} = require('../src/opencode-bridge.cjs');
+const {readFrames, writeFrame, emptyProviderDiagnostic, emptyTaskDiagnostic,
+  validProviderDiagnostic} = require('../src/opencode-bridge.cjs');
 const READY = {type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false};
 const RESULT = {text: 'Synthetic answer.', commands: 1, nativeTurnCompleted: true, taskVerified: false};
+test('provider counter schema accepts exact historical receipts and the new bounded terminal code', () => {
+  const current = emptyProviderDiagnostic();
+  current.request_errors.execution_budget_exceeded = 1;
+  assert.equal(validProviderDiagnostic(current), true);
+  const old = structuredClone(current);
+  delete old.request_errors.execution_budget_exceeded;
+  assert.equal(validProviderDiagnostic(old), true);
+  assert.equal(Object.hasOwn(old.request_errors, 'execution_budget_exceeded'), false);
+  for (const changed of [true, -1, 65536, 'PRIVATE_CANARY']) {
+    const invalid = structuredClone(current);
+    invalid.request_errors.execution_budget_exceeded = changed;
+    assert.equal(validProviderDiagnostic(invalid), false);
+  }
+  old.request_errors.private_detail = 'PRIVATE_CANARY';
+  assert.equal(validProviderDiagnostic(old), false);
+});
 function child(t, program) {
   const process = spawn(require('node:process').execPath, ['-e', program], {stdio: ['pipe', 'pipe', 'pipe'],
     env: {PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', ELECTRON_RUN_AS_NODE: '1'}});

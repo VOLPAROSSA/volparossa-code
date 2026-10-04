@@ -19,7 +19,8 @@ function fixture(Task, receive, options = {}) {
     observations: options.observations ?? {submitted: 0, cleanup_confirmed: 0},
     async close() { observed.push('provider-close'); if (options.badCleanup) throw Error('private detail'); }};
   const hooks = {Task, preflight: async () => options.capabilities ??
-    {...caps(options.model ?? DEFAULT_MODEL), generation_policy_version: 1, generation_policies: ['greedy_v1']},
+    {...caps(options.model ?? DEFAULT_MODEL), generation_policy_version: 1, generation_policies: ['greedy_v1'],
+      execution_error_version: 1},
     provider: async value => { binding.provider = value.model; return provider; },
     prepare(cooperative) { assert.equal(cooperative, options.cooperative ?? false); },
     cooperative: () => options.cooperative ?? false, port: async () => 1235, approvalMs: 15,
@@ -85,10 +86,11 @@ test('owner-selected validated 4B core binds provider, native catalog and task b
 test('incompatible, widened or quarantined core fails before provider or native startup', async () => {
   const model = 'qwen3-4b-instruct-2507-v1';
   for (const changed of [{quarantined: true}, {local_only: false}, {max_prompt_tokens: 262144},
-    {generation_policies: []}, {model_profile: 'unreviewed-model'}]) {
+    {generation_policies: []}, {execution_error_version: undefined}, {execution_error_version: 2},
+    {model_profile: 'unreviewed-model'}]) {
     class Task { constructor() { assert.fail('must not create task'); } }
     const f = fixture(Task, () => assert.fail('must not signal ready'), {capabilities: {
-      ...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'], ...changed,
+      ...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'], execution_error_version: 1, ...changed,
     }});
     assert.equal(await f.done, 1);
     assert.deepEqual(f.binding, {}); assert.deepEqual(f.observed, []);
@@ -124,7 +126,7 @@ test('owner cleanup accepts an actual provider retry after a correlated reaped f
     reply(socket, request, 'admitted');
     if (++attempts === 1) reply(socket, request, 'error', {code: 'execution_failed'});
     else reply(socket, request, 'result', {result: coreResult(undefined, model)});
-  }, {...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1']});
+  }, {...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'], execution_error_version: 1});
   const provider = await startChatCompletionsProvider({socketPath: core.socketPath, model, diagnostics: true});
   class Task {
     async run() {

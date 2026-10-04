@@ -31,15 +31,19 @@ async function terminalCase(reason, config) {
         const coding = message.operation.conversation.tools.some(tool => tool.name === 'bash');
         if (coding) assert.equal(++codingSubmissions, 1, 'terminal output must not cause native regeneration');
         // Titles and other upstream no-tool requests are not the coding task.
-        const output = coding ? {type: 'incomplete', reason} : {type: 'assistant', text: 'Synthetic retry check'};
         reply(socket, message, 'admitted');
-        reply(socket, message, 'result', {result: result(output, MODEL)});
+        if (coding && reason === 'execution_budget_exceeded') {
+          reply(socket, message, 'error', {code: reason});
+        } else {
+          const output = coding ? {type: 'incomplete', reason} : {type: 'assistant', text: 'Synthetic retry check'};
+          reply(socket, message, 'result', {result: {...result(output, MODEL), generation_policy: 'greedy_v1'}});
+        }
       } catch (error) {
         fixtureError ??= error;
         socket.destroy();
         abort.abort();
       }
-    }, caps(MODEL));
+    }, {...caps(MODEL), generation_policy_version: 1, generation_policies: ['greedy_v1'], execution_error_version: 1});
     phase = 'native_start';
     runtime = await OpenCodeRuntime.start({...config, socketPath: core.socketPath}, {workspace: project});
     phase = 'native_task';
@@ -59,11 +63,13 @@ async function terminalCase(reason, config) {
     assert.equal(codingSubmissions, 1);
     assert.equal(approvals, 0);
     const diagnostics = runtime.diagnostics;
-    assert.equal(diagnostics.incomplete_reasons[reason], 1);
-    assert.equal(diagnostics.request_errors.invalid_model_output, 1);
+    const budget = reason === 'execution_budget_exceeded';
+    if (!budget) assert.equal(diagnostics.incomplete_reasons[reason], 1);
+    assert.equal(diagnostics.request_errors.invalid_model_output, budget ? 0 : 1);
+    assert.equal(diagnostics.request_errors.execution_budget_exceeded, budget ? 1 : 0);
     assert.equal(diagnostics.submitted, submissions);
     assert.equal(diagnostics.cleanup_confirmed, submissions);
-    assert.equal(diagnostics.incomplete, 1);
+    assert.equal(diagnostics.incomplete, budget ? 0 : 1);
     assert.equal(await fs.readFile(path.join(project, 'README.txt'), 'utf8'), marker);
     assert.deepEqual(await fs.readdir(project), ['README.txt']);
     phase = 'session_close';
@@ -113,7 +119,7 @@ async function main(args = process.argv.slice(2)) {
   const config = {version: 1, opencode: report.binary, opencodeSha256: report.binary_sha256,
     buildReport, node, nodeSha256: hash(await fs.readFile(node))};
   const cases = [];
-  for (const reason of ['invalid_output', 'wire_truncated']) cases.push(await terminalCase(reason, config));
+  for (const reason of ['invalid_output', 'wire_truncated', 'execution_budget_exceeded']) cases.push(await terminalCase(reason, config));
   const evidence = {version: 1, native_runtime: true, runtime_version: report.runtime_version,
     source_commit: report.source_commit, binary_sha256: report.binary_sha256, node_sha256: config.nodeSha256,
     provider_sha256: hash(await fs.readFile(path.join(__dirname, '../src/chat-completions-provider.cjs'))),

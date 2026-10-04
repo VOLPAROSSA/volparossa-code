@@ -63,11 +63,12 @@ function equalLimits(value, expected, optional = []) {
   keys(value, Object.keys(expected), optional);
   check(Object.entries(expected).every(([key, item]) => value[key] === item), 'incompatible_capabilities');
 }
-function capabilities(value, generationPolicyVersion) {
+function capabilities(value, generationPolicyVersion, executionErrorVersion) {
   check(object(value));
   const generation = generationPolicyVersion === 1 ? ['generation_policy_version', 'generation_policies'] : [];
+  const execution = executionErrorVersion === 1 ? ['execution_error_version'] : [];
   equalLimits(value, { ...expectedLimits(value.model_profile), execution_slots: 1,
-    max_request_bytes: requestLimit(value.model_profile), max_response_bytes: 65536 }, ['max_seconds', 'quarantined', ...generation]);
+    max_request_bytes: requestLimit(value.model_profile), max_response_bytes: 65536 }, ['max_seconds', 'quarantined', ...generation, ...execution]);
   check(Number.isInteger(value.max_seconds) && value.max_seconds >= 1 && value.max_seconds <= 600 &&
     typeof value.quarantined === 'boolean', 'incompatible_capabilities');
   if (generationPolicyVersion === 1) {
@@ -76,6 +77,7 @@ function capabilities(value, generationPolicyVersion) {
       JSON.stringify(value.generation_policies) === JSON.stringify(expected), 'unsupported_generation_policy');
     Object.freeze(value.generation_policies);
   }
+  if (executionErrorVersion === 1) check(value.execution_error_version === 1, 'incompatible_capabilities');
   return Object.freeze(value);
 }
 
@@ -168,10 +170,12 @@ function validateResult(value, caps, input) {
 }
 
 class PrivateConversation extends PrivateCompute {
-  constructor(socketPath, { generationPolicyVersion } = {}) {
+  constructor(socketPath, { generationPolicyVersion, executionErrorVersion } = {}) {
     super(socketPath);
     check(generationPolicyVersion === undefined || generationPolicyVersion === 1, 'unsupported_generation_policy');
     this.generationPolicyVersion = generationPolicyVersion;
+    check(executionErrorVersion === undefined || executionErrorVersion === 1, 'unsupported_execution_error_version');
+    this.executionErrorVersion = executionErrorVersion;
   }
   // These hooks reuse only the already-tested transport. Q&A callers and bytes
   // remain unchanged; this instance cannot silently use the old handshake.
@@ -179,7 +183,8 @@ class PrivateConversation extends PrivateCompute {
     // The separate conversation family may advertise a larger request envelope;
     // the legacy Q&A class and its 32KiB framing remain byte-for-byte unchanged.
     if (operation.type === 'capabilities') operation = { type: 'conversation_capabilities',
-      ...(this.generationPolicyVersion === 1 ? { generation_policy_version: 1 } : {}) };
+      ...(this.generationPolicyVersion === 1 ? { generation_policy_version: 1 } : {}),
+      ...(this.executionErrorVersion === 1 ? { execution_error_version: 1 } : {}) };
     try {
       const body = Buffer.from(JSON.stringify({ version: 1, id, operation }));
       check(body.length > 0 && body.length <= (this.caps?.max_request_bytes ?? 32768), 'request_bound');
@@ -203,18 +208,23 @@ class PrivateConversation extends PrivateCompute {
     return new Promise((resolve, reject) => {
       const abort = () => this._cancel();
       this.pending = { id, input, resolve, reject, signal, abort, admitted: false, cancelled: false,
+        executionErrorVersion: this.caps.execution_error_version === 1 ? 1 : undefined,
         timer: setTimeout(() => this._cancel(), this.caps.max_seconds * 1000 + 5000) };
       signal?.addEventListener('abort', abort, { once: true });
       this._send(id, { type: 'submit_conversation', conversation: input });
       if (signal?.aborted) abort();
     });
   }
+  _allowsExecutionBudgetError(message) {
+    return this.state === 'open' && this.pending?.admitted === true &&
+      this.pending.executionErrorVersion === 1 && message.id === this.pending.id && !this.cancels.has(message.id);
+  }
   _response(message) {
     check(object(message) && message.version === 1 && message.event !== 'capabilities', 'invalid_response');
     if (message.event === 'conversation_capabilities') {
       keys(message, ['version', 'id', 'event', 'capabilities']);
       check(this.state === 'connecting' && message.id === this.handshake?.id, 'invalid_response');
-      this.caps = capabilities(message.capabilities, this.generationPolicyVersion);
+      this.caps = capabilities(message.capabilities, this.generationPolicyVersion, this.executionErrorVersion);
       this.state = 'open';
       clearTimeout(this.handshake.timer);
       this.handshake.resolve(this.caps);

@@ -75,6 +75,11 @@ admission. Model quality and useful execution still require real-model evidence.
 
 Before starting OpenCode, the owner validates the complete core capability reply,
 including template, limits, private-local scope and negotiated `greedy_v1` policy.
+Current native sessions also require `execution_error_version: 1`; an older core
+without that capability is refused before starting the runtime. Both native smoke
+profiles pin core `08f23e11ce883f546262ec424940400283d58f22` for this contract.
+Legacy Q&A and conversation clients that do not opt in remain unchanged.
+
 That one model identity binds the native catalog, all agent roles, provider,
 task/session checks and trial receipt. Each provider request checks the core again;
 a different profile or incompatible result is refused, not silently substituted.
@@ -112,13 +117,17 @@ for core cleanup before returning SDK-compatible SSE or JSON; this is not
 token-by-token model streaming. Exhaustion remains `length`, not successful `stop`.
 Cleanup-confirmed invalid/truncated output or an unmet tool choice returns a
 terminal HTTP 422, so the pinned SDK and OpenCode do not blindly regenerate that
-unusable turn. Busy/execution/transport availability and uncertain cleanup remain
-separate failures; this change does not make an incomplete answer usable.
+unusable turn. The negotiated `execution_budget_exceeded` response also maps to
+422, but only for the matching admitted task after confirmed core cleanup. It
+does not claim a completed model response. Busy, other execution/transport
+failures and uncertain cleanup remain separate; this change does not make an
+incomplete answer usable.
 An already reported, known terminal task failure is separate from runtime cleanup:
 the task still fails, while a confirmed session/provider/process shutdown can
 succeed. Unknown/protocol errors and any unconfirmed cleanup still fail closed.
 The provider also counts cleanup for a correlated, admitted task ending with
-the core's terminal `execution_failed` or `cancelled` response, or a valid result
+the core's terminal `execution_failed`, `cancelled` or negotiated
+`execution_budget_exceeded` response, or a valid result
 that races local cancellation. These remain failed requests, not model results.
 The receipt is retained per rejection inside the checked transport; an error code
 alone, admission alone, a cancellation acknowledgement or a disconnect cannot

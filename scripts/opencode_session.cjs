@@ -135,11 +135,11 @@ async function runSession({input, output, events = process}, hooks = {}) {
   for (const name of ['SIGTERM', 'SIGINT', 'SIGHUP']) events.once(name, broken);
   try {
     const caps = capabilities(await (hooks.preflight ?? (async () => {
-      const core = new PrivateConversation('/opt/core/compute.sock', {generationPolicyVersion: 1});
+      const core = new PrivateConversation('/opt/core/compute.sock', {generationPolicyVersion: 1, executionErrorVersion: 1});
       try {
         return await core.connect();
       } finally { core.close(); }
-    }))(), 1);
+    }))(), 1, 1);
     if (!isCodingModel(caps.model_profile) || !caps.native_tool_template || !caps.local_only ||
         caps.quarantined || !caps.generation_policies.includes('greedy_v1')) throw Error('capabilities');
     // The owner's already selected core determines this session's one model.
