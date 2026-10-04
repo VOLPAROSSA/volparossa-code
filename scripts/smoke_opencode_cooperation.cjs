@@ -320,4 +320,4 @@ async function main(args = process.argv.slice(2)) {
 if (require.main === module) main().catch(() => {
   process.stderr.write('{"passed":false,"phase":"guard","failure":"guard_or_input_rejected"}\n'); process.exitCode = 1;
 });
-module.exports = {main, options, snapshotBytes, resultEvidence, plannerState, privatePlanner, guestAllowed, CALL, TOOL, FINISHED};
+module.exports = {main, options, snapshotBytes, resultEvidence, plannerState, privatePlanner, guestAllowed, guestGuard, CALL, TOOL, FINISHED};

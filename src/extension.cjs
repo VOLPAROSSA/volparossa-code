@@ -18,6 +18,7 @@ function selectionInput(editor) {
 function register(vscode, context, Client = PrivateCompute, native = {}) {
   const active = new Set();
   let nativeActive;
+  let publicActive;
   let disposed = false;
   let busy = false;
   const trusted = () => {
@@ -221,9 +222,107 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
   });
   context.subscriptions.push(vscode.commands.registerCommand('volparossaCode.codingTask', codingTask(false)));
   context.subscriptions.push(vscode.commands.registerCommand('volparossaCode.codingPublicTask', codingTask(true)));
+  context.subscriptions.push(vscode.commands.registerCommand('volparossaCode.proposePublicFile', run(async () => {
+    const editor = vscode.window.activeTextEditor, document = editor?.document;
+    if (!document || document.uri.scheme !== 'file' || document.isDirty) {
+      throw Error('Select a saved local source file before requesting a public code proposal.');
+    }
+    const file = document.uri.fsPath, documentVersion = document.version;
+    const path = require('node:path');
+    const folders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file' &&
+      file.startsWith(folder.uri.fsPath + path.sep)).sort((a, b) => b.uri.fsPath.length - a.uri.fsPath.length);
+    if (!folders.length) throw Error('Open a local workspace containing the selected source file.');
+    const workspace = folders[0].uri.fsPath;
+    const config = vscode.workspace.getConfiguration('volparossaCode');
+    const verificationPlan = verificationSettings(config.inspect('ownerVerification')?.globalValue);
+    const socketPath = config.inspect('publicSocket')?.globalValue;
+    if (typeof socketPath !== 'string' || !socketPath.startsWith('/')) {
+      throw Error('Configure the public cooperative core socket before enrolling a code proposal.');
+    }
+    const {capturePublicCodeFile, applyPublicCodeFile} = native.publicCodeFile ?? require('./public-code-file.cjs');
+    const source = capturePublicCodeFile({workspace, file});
+    const question = await vscode.window.showInputBox({title: 'Public single-file code proposal',
+      prompt: 'The complete selected file and this task will be public to peers. Private history, other files and local paths are not included.',
+      ignoreFocusOut: true, validateInput: value => !value.trim() || value.includes('\0') || byteLength(value) > 512
+        ? 'Enter a public task of 1–512 UTF-8 bytes.' : undefined});
+    if (!question?.trim() || question.includes('\0') || byteLength(question) > 512) return;
+    const license = await vscode.window.showQuickPick(['GPL-3.0-only', 'CC0-1.0', 'CC-BY-4.0', 'CC-BY-SA-4.0'],
+      {title: 'Select the license you are authorized to apply to this public source and task'});
+    if (!license) return;
+    await show(`Public source proposal — ${license}\n\nQuestion:\n${question}\n\nComplete selected file:\n${source.context}`);
+    const consent = await vscode.window.showWarningMessage(
+      'Publish this exact task and complete source file to VOLPAROSSA peers under the selected license? ' +
+      'Confirm that both are public and that you have sharing rights. Peers may retain them; cancellation cannot erase publication. ' +
+      'A peer may propose a replacement, but cannot edit files or run commands. Any local edit needs separate approval.',
+      {modal: true}, 'Enroll public source');
+    if (consent !== 'Enroll public source') return;
+    trusted();
+    const delegation = native.publicDelegation ?? require('./cooperative-delegation.cjs');
+    const snapshot = delegation.createPublicCodeSnapshot({question, context: source.context, license,
+      public_content: true, rights_confirmed: true});
+    const controller = new AbortController(), client = new delegation.CooperativeDelegation(socketPath);
+    let response;
+    publicActive = {controller, client};
+    try {
+      response = await vscode.window.withProgress({location: vscode.ProgressLocation.Notification,
+        title: 'VOLPAROSSA — public peer code proposal', cancellable: true}, async (_progress, cancellation) => {
+        const listener = cancellation.onCancellationRequested(() => controller.abort());
+        if (cancellation.isCancellationRequested) controller.abort();
+        try {
+          trusted(); await client.connect(); trusted();
+          return await client.execute({tool_call_id: 'owner-code-' + require('node:crypto').randomBytes(16).toString('hex'),
+            snapshot, signal: controller.signal});
+        } finally { listener.dispose(); }
+      });
+    } finally {
+      try { await client.close(); } finally { publicActive = undefined; }
+    }
+    trusted();
+    const proposal = delegation.validatedCodeProposal(snapshot, response);
+    await show('VOLPAROSSA — generated public peer proposal, not yet applied\n' +
+      `Complete model output: ${proposal.complete ? 'yes' : 'no; cannot apply'}. Correctness is not established.\n` +
+      'The raw replacement below is not rewritten or extracted from Markdown.\n\n' + proposal.text);
+    const applied = await applyPublicCodeFile(source, snapshot, response, {signal: controller.signal,
+      approve: async edit => {
+        trusted();
+        if (document.isDirty || document.version !== documentVersion) return false;
+        const answer = await vscode.window.showWarningMessage(
+          `Replace only ${edit.relativePath} with this exact peer proposal?\n\n` +
+          `Expected source SHA-256: ${edit.sourceSha256}\nReplacement SHA-256: ${edit.replacementSha256}\n\n` +
+          'Review the complete proposal first. This grants one local edit, not peer filesystem or command access.',
+          {modal: true}, 'Apply replacement once');
+        trusted();
+        return answer === 'Apply replacement once' && !document.isDirty && document.version === documentVersion;
+      }});
+    let verification;
+    if (applied.applied) {
+      const settings = verificationPlan;
+      if (settings) {
+        const verify = (native.createWorkspaceVerifier ?? require('./workspace-verifier.cjs').createWorkspaceVerifier)({
+          workspace, executable: settings.executable, args: settings.args, timeoutMs: settings.timeoutMs,
+          approve: async check => {
+            trusted();
+            const answer = await vscode.window.showWarningMessage(
+              `Run the owner-selected check once?\n\n${JSON.stringify([check.executable, ...check.args])}\n\n` +
+              'Read-only workspace sandbox, no network. Its output is not sent to peers.',
+              {modal: true}, 'Run check once');
+            trusted(); return answer === 'Run check once';
+          },
+        });
+        verification = await verify({round: 1, remainingMs: settings.timeoutMs, signal: controller.signal});
+      }
+    }
+    await show(`VOLPAROSSA public code proposal: ${applied.applied ? 'applied to the selected file' : 'not applied'}.\n` +
+      (verification ? `Owner-selected local check: ${verification.status}; not general correctness.\n` : 'No local test result is claimed.\n') +
+      'Other files and private history were not delegated. This first single-file contract is not protected private peer coding.');
+  })));
   context.subscriptions.push({dispose() {
     disposed = true;
     for (const client of active) client.close(); active.clear();
+    if (publicActive) {
+      publicActive.controller.abort();
+      void publicActive.client.close().catch(() => {});
+    }
     if (nativeActive) {
       void nativeActive.runtime.stop();
       void nativeActive.runtime.close().catch(() => {});

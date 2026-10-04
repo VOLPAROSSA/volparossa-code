@@ -318,3 +318,73 @@ test('public snapshot cancellation or invalid socket cannot launch or authorize 
     assert.deepEqual(f.events, []);
   }
 });
+
+function proposalFixture({complete = true, apply = true, cleanup = true} = {}) {
+  const events = [], native = {};
+  const source = Object.freeze({context: 'export const value = 1;', sourceSha256: 'a'.repeat(64), relativePath: 'source.js'});
+  const snapshot = Object.freeze({}), response = Object.freeze({}), proposal = {
+    complete, sourceSha256: source.sourceSha256, text: 'export const value = 2;', coreTaskId: 'core-task', toolCallId: 'tool'};
+  native.publicCodeFile = {
+    capturePublicCodeFile(value) { events.push(['capture', value]); return source; },
+    async applyPublicCodeFile(s, token, result, {approve}) {
+      assert.equal(s, source); assert.equal(token, snapshot); assert.equal(result, response);
+      if (!complete) return {applied: false};
+      const accepted = await approve({...proposal, file: '/project/source.js', relativePath: 'source.js', replacementSha256: 'b'.repeat(64)});
+      events.push(['apply', accepted]); return {applied: accepted};
+    },
+  };
+  native.publicDelegation = {
+    createPublicCodeSnapshot(value) { events.push(['enroll', value]); return snapshot; },
+    validatedCodeProposal(s, r) { assert.equal(s, snapshot); assert.equal(r, response); return proposal; },
+    CooperativeDelegation: class {
+      constructor(socket) { events.push(['socket', socket]); }
+      async connect() { events.push(['connect']); }
+      async execute(value) { assert.equal(value.snapshot, snapshot); events.push(['execute']); return response; }
+      async close() { events.push(['cleanup']); if (!cleanup) throw Error('PRIVATE_FAILURE'); }
+    },
+  };
+  const f = fixture({native});
+  f.api.window.activeTextEditor.document = {uri: {scheme: 'file', fsPath: '/project/source.js'}, isDirty: false, version: 1};
+  f.api.workspace.workspaceFolders = [{uri: {scheme: 'file', fsPath: '/project'}}];
+  f.api.workspace.getConfiguration = () => ({inspect: key => ({globalValue: key === 'publicSocket' ? '/owner/public.sock' : {}})});
+  f.api.window.showQuickPick = async () => 'GPL-3.0-only';
+  f.api.window.showWarningMessage = async (_text, _options, action) => {
+    events.push(['approve', action]); return action === 'Apply replacement once' && !apply ? undefined : action;
+  };
+  return {...f, events};
+}
+test('public file command shares exact source only and joins cleanup before separate local edit approval', async () => {
+  const f = proposalFixture(); await f.commands.get('volparossaCode.proposePublicFile')();
+  assert.deepEqual(f.errors, []);
+  assert.deepEqual(f.events.find(event => event[0] === 'enroll')[1], {question: 'Explain this code.',
+    context: 'export const value = 1;', license: 'GPL-3.0-only', public_content: true, rights_confirmed: true});
+  assert(f.events.findIndex(event => event[0] === 'cleanup') < f.events.findIndex(event => event[0] === 'apply'));
+  assert.deepEqual(f.events.find(event => event[0] === 'socket'), ['socket', '/owner/public.sock']);
+  assert.match(f.documents.at(-1).content, /applied to the selected file/);
+  assert.match(f.documents.at(-1).content, /No local test result/);
+});
+test('incomplete peer output, declined local edit and failed cleanup never apply', async () => {
+  for (const options of [{complete: false}, {apply: false}, {cleanup: false}]) {
+    const f = proposalFixture(options); await f.commands.get('volparossaCode.proposePublicFile')();
+    assert(!f.events.some(event => event[0] === 'apply' && event[1]));
+    if (options.cleanup === false) assert(!f.documents.some(document => /generated public peer proposal/.test(document.content)));
+  }
+});
+test('dirty documents and denied public consent never connect or publish', async () => {
+  for (const dirty of [true, false]) {
+    const f = proposalFixture(); f.api.window.activeTextEditor.document.isDirty = dirty;
+    f.api.window.showWarningMessage = async () => undefined;
+    await f.commands.get('volparossaCode.proposePublicFile')();
+    assert(!f.events.some(event => event[0] === 'enroll' || event[0] === 'socket'));
+  }
+});
+test('editor changes while public task executes block replacement of unsaved work', async () => {
+  const f = proposalFixture();
+  const old = f.api.window.showTextDocument;
+  f.api.window.showTextDocument = async doc => {
+    if (/generated public peer proposal/.test(doc.content)) f.api.window.activeTextEditor.document.isDirty = true;
+    return old(doc);
+  };
+  await f.commands.get('volparossaCode.proposePublicFile')();
+  assert(!f.events.some(event => event[0] === 'apply' && event[1]));
+});

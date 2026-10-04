@@ -19,6 +19,7 @@
       {"command": "volparossaCode.reviewSelection", "title": "VOLPAROSSA: Ask About Selected Code (Private, Local)"},
       {"command": "volparossaCode.codingTask", "title": "VOLPAROSSA: Run OpenCode Task (Development)"},
       {"command": "volparossaCode.codingPublicTask", "title": "VOLPAROSSA: Run OpenCode Task with Enrolled Public Work"},
+      {"command": "volparossaCode.proposePublicFile", "title": "VOLPAROSSA: Propose a Replacement for a Public Source File"},
       {"command": "volparossaCode.capabilities", "title": "VOLPAROSSA: Show Compute Capabilities"}
     ],
     "configuration": {

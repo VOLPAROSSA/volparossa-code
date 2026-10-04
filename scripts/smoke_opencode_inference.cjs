@@ -238,4 +238,4 @@ if (require.main === module) main().catch(() => {
   process.stderr.write('{"passed":false,"phase":"guard","failure":"guard_or_input_rejected"}\n'); process.exitCode = 1;
 });
 module.exports = {main, commandKind, approvalKind, ORIGINAL, TEST, guestGuard, retainFailure, closeRuntime,
-  createTrialVerifier, runNativeTrial, bindRuntimeModel};
+  createTrialVerifier, runNativeTrial, bindRuntimeModel, isolatedCheck};

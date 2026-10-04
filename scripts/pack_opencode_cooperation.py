@@ -30,6 +30,9 @@ SOURCES = tuple('src/' + name for name in (
     'scripts/smoke_opencode_cooperation.cjs', 'third_party/opencode.json',
     'third_party/opencode-LICENSE.txt', 'patches/opencode-no-runtime-installs.patch',
     'LICENSE', 'THIRD_PARTY_LICENSES.md')
+PROPOSAL_SOURCES = SOURCES + ('src/public-code-result.cjs', 'src/public-code-file.cjs',
+    'src/workspace-verifier.cjs', 'scripts/smoke_opencode_inference.cjs',
+    'scripts/smoke_public_code_proposal.cjs')
 
 
 def require(value, reason):
@@ -55,18 +58,19 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def output_path(path):
+def output_path(path, prefix='opencode-cooperative-inputs'):
+    require(prefix in ('opencode-cooperative-inputs', 'public-code-proposal-inputs'), 'bundle_kind')
     require(path.is_absolute() and path.resolve() == path
             and path.parent == ROOT / 'build' and path.parent.is_dir()
-            and re.fullmatch(r'opencode-cooperative-inputs-[A-Za-z0-9-]{1,64}', path.name)
+            and re.fullmatch(prefix + r'-[A-Za-z0-9-]{1,64}', path.name)
             and not path.exists() and not path.is_symlink(), 'new_workspace_bundle')
     return path
 
 
-def blobs(revision):
+def blobs(revision, sources=SOURCES):
     require(re.fullmatch(r'[0-9a-f]{40}', revision) is not None, 'exact_code_revision')
     result = {}
-    for name in SOURCES:
+    for name in sources:
         data = subprocess.run(['git', '-C', str(ROOT), 'cat-file', 'blob', revision + ':' + name],
             check=True, capture_output=True, timeout=15).stdout
         require(0 < len(data) <= 2 * 1024**2, 'source_bound')
@@ -99,6 +103,25 @@ def pack(args):
     source['runtime/build-report.json'] = build_raw
     inputs = {'runtime/opencode': (binary, build['binary_sha256']),
               'runtime/node': (args.node, NODE[1]), 'runtime/node-LICENSE': (node_license, NODE_LICENSE[1])}
+    return capture(args, source, inputs, dict(version=1, kind='opencode-cooperative-inputs',
+        code_revision=args.code_revision, opencode_revision=PIN,
+        opencode_binary_sha256=build['binary_sha256'], node_version=NODE_VERSION))
+
+
+def pack_proposal(args):
+    output_path(args.output, 'public-code-proposal-inputs')
+    source = blobs(args.code_revision, PROPOSAL_SOURCES)
+    node_license = args.node.parent.parent / 'LICENSE'
+    for candidate, expected in ((args.node, NODE), (node_license, NODE_LICENSE)):
+        require(owned_file(candidate, 200 * 1024**2).st_size == expected[0]
+                and digest(candidate) == expected[1], 'exact_node_input')
+    require(os.access(args.node, os.X_OK), 'node_executable')
+    inputs = {'runtime/node': (args.node, NODE[1]), 'runtime/node-LICENSE': (node_license, NODE_LICENSE[1])}
+    return capture(args, source, inputs, dict(version=1, kind='public-code-proposal-inputs',
+        code_revision=args.code_revision, node_version=NODE_VERSION))
+
+
+def capture(args, source, inputs, manifest):
     # A partial capture has no INPUTS.json and is never an accepted executable bundle.
     # Retain it for inspection rather than recursively removing an operator's path.
     args.output.mkdir(mode=0o700)
@@ -118,9 +141,7 @@ def pack(args):
         actual = digest(target)
         require(actual == (sha(source[name]) if name in source else inputs[name][1]), 'capture_changed')
         inventory[name] = dict(bytes=target.stat().st_size, sha256=actual, mode=mode)
-    manifest = dict(version=1, kind='opencode-cooperative-inputs', code_revision=args.code_revision,
-        opencode_revision=PIN, opencode_binary_sha256=build['binary_sha256'],
-        node_version=NODE_VERSION, files=inventory)
+    manifest['files'] = inventory
     encoded = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
     with (args.output / 'INPUTS.json').open('xb') as stream:
         stream.write(encoded)
@@ -133,6 +154,7 @@ def pack(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--public-code-proposal', action='store_true')
     parser.add_argument('--code-revision')
     for name in ('node', 'build-report', 'output'):
         parser.add_argument('--' + name, type=Path)
@@ -141,9 +163,12 @@ def main(argv=None):
         print(json.dumps(dict(execute=False, plan='capture_exact_code_blobs_and_existing_source_build',
                              downloads=False, runtime_execution=False, network_participation=False)))
         return
-    require(all(getattr(args, name) is not None for name in ('code_revision', 'node', 'build_report', 'output')),
+    required = ('code_revision', 'node', 'output') if args.public_code_proposal else ('code_revision', 'node', 'build_report', 'output')
+    require(all(getattr(args, name) is not None for name in required),
             'explicit_capture_inputs')
-    print(json.dumps(pack(args)))
+    if args.public_code_proposal:
+        require(args.build_report is None, 'proposal_has_no_local_planner')
+    print(json.dumps(pack_proposal(args) if args.public_code_proposal else pack(args)))
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -16,6 +17,57 @@ SPEC.loader.exec_module(PACK)
 
 
 class CooperationCaptureTests(unittest.TestCase):
+    def test_proposal_mode_has_exact_additive_node_only_inventory_and_module_closure(self):
+        self.assertEqual(len(PACK.SOURCES), 21)
+        self.assertEqual(len(PACK.PROPOSAL_SOURCES), 26)
+        self.assertEqual(len(set(PACK.PROPOSAL_SOURCES)), 26)
+        for name in PACK.PROPOSAL_SOURCES:
+            if not name.endswith('.cjs'):
+                continue
+            for dependency in re.findall(r"require\(['\"](\.[^'\"]+)['\"]\)", (ROOT / name).read_text()):
+                target = ((ROOT / name).parent / dependency).resolve().relative_to(ROOT).as_posix()
+                self.assertIn(target, PACK.PROPOSAL_SOURCES, (name, dependency))
+        with patch.object(PACK, 'pack_proposal', side_effect=AssertionError('must not capture')), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            PACK.main(['--public-code-proposal'])
+        self.assertIs(json.loads(output.getvalue())['execute'], False)
+
+    def test_proposal_capture_has_no_opencode_binary_or_local_planner_and_requires_pinned_node(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(PACK, 'ROOT', Path(directory)):
+            root = Path(directory)
+            (root / 'build').mkdir()
+            node = root / 'node-package/bin/node'
+            node.parent.mkdir(parents=True)
+            license = root / 'node-package/LICENSE'
+            for file, data in ((node, b'synthetic Node'), (license, b'synthetic license')):
+                file.write_bytes(data)
+                file.chmod(0o700)
+            source = {'code/' + name: b'synthetic committed source' for name in PACK.PROPOSAL_SOURCES}
+            output = root / 'build/public-code-proposal-inputs-fixture'
+            args = SimpleNamespace(code_revision='b' * 40, node=node, output=output)
+            with patch.object(PACK, 'blobs', return_value=source):
+                with self.assertRaises(ValueError):
+                    PACK.pack_proposal(args)
+            self.assertFalse(output.exists())
+            with patch.object(PACK, 'blobs', return_value=source) as selected, \
+                    patch.object(PACK, 'NODE', (node.stat().st_size, PACK.digest(node))), \
+                    patch.object(PACK, 'NODE_LICENSE', (license.stat().st_size, PACK.digest(license))):
+                result = PACK.pack_proposal(args)
+            selected.assert_called_once_with('b' * 40, PACK.PROPOSAL_SOURCES)
+            manifest = json.loads((output / 'INPUTS.json').read_text())
+            self.assertEqual(set(manifest), {'version', 'kind', 'code_revision', 'node_version', 'files'})
+            self.assertEqual(manifest['kind'], 'public-code-proposal-inputs')
+            self.assertEqual(result['files'], 28)
+            self.assertIs(result['actual_runtime_execution'], False)
+            self.assertEqual({name for name in manifest['files'] if name.startswith('runtime/')},
+                             {'runtime/node', 'runtime/node-LICENSE'})
+            for name, expected in manifest['files'].items():
+                actual = output / name
+                self.assertEqual(expected, dict(bytes=actual.stat().st_size,
+                    sha256=PACK.digest(actual), mode=actual.stat().st_mode & 0o777))
+            with self.assertRaises(ValueError):
+                PACK.output_path(output)
+
     def test_preview_is_inert_and_outputs_must_be_new_under_build(self):
         with patch.object(PACK, 'pack', side_effect=AssertionError('must not capture')), \
                 contextlib.redirect_stdout(io.StringIO()) as output:

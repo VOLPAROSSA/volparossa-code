@@ -168,6 +168,59 @@ public because the tool is enabled. Public disclosure cannot be reversed by
 cancelling a task. Cancellation is propagated to the actual core task and cleanup
 is awaited; incomplete results remain incomplete.
 
+### Explicit public single-file proposals (candidate)
+
+**Propose a Replacement for a Public Source File** is a separate owner command,
+not a private-history fallback. It captures the complete saved selected file
+(at most 4096 UTF-8 bytes) and a public task (at most 512 bytes), shows their exact
+contents and asks for license/sharing-rights consent. Use an explicitly configured
+code-proposal public service; an ordinary document service and a private
+conversation service are not interchangeable with it. The core selects and
+accounts for the actual peer; the application does not add a scheduler.
+
+The additive `public_code_proposal` operation requests `single_file_replacement_v1`.
+Its original worker output is checked against the selected source hash, task
+receipt, model identity, report hash, dataset bindings, EOS and cleanup. The same
+opaque snapshot and result contract also pass through the existing native
+`volparossa_delegate_public` proxy, whose model-facing arguments stay empty.
+For the direct owner command, no local planning model is needed to rewrite or
+reinterpret the peer's candidate.
+
+Only the exact raw complete replacement is eligible for a separate local edit
+approval. Markdown fences are not extracted; partial output is not repaired or
+called complete. The owner rechecks the original source hash and pinned local
+file identity after approval, rejects symlinks and hardlinks, and replaces only
+that selected file. Other files and the original test files are not supplied to
+the peer or changed by this operation. An optional user-configured verifier uses
+the existing separate one-shot local, read-only/no-network check; its output is
+not automatically shared with peers. A passed check is not general correctness.
+
+Focused checks use real Unix framing and owner filesystem operations with
+explicit synthetic core/worker reports. They are contract evidence, not real
+model quality, live peer execution or a completed distributed coding workflow.
+No private remote-execution protection, automatic publication of private code or
+complete multi-file coding capability is claimed by this first public contract.
+
+The additive disposable-guest driver `scripts/smoke_public_code_proposal.cjs`
+prepares an explicitly public copy of the **unchanged** `ORIGINAL` and `TEST`
+fixture from the existing inference trial. Only the selected source and question
+are submitted to the real external code-proposal service; the original tests
+remain local. No local planner, supplied model answer or scripted model tool
+sequence is used. The driver requires the initial three tests to fail, a
+source-bound complete peer proposal, separate fixture-owner edit approval, the
+existing approved read-only check and the same independent immutable tests to
+pass. It records hashes and closed results, not source text or model output.
+Its parent must independently establish peer execution, route provenance and
+guest cleanup; the driver receipt alone does not prove them.
+
+Capture its committed sources and the already available pinned Node executable
+with `scripts/pack_opencode_cooperation.py --public-code-proposal --execute` and
+the explicit `--code-revision`, `--node` and fresh workspace `--output` inputs.
+That separate `public-code-proposal-inputs` bundle contains no OpenCode binary,
+build report or local model. The historical cooperation bundle and private
+inference trial retain their original contracts. Preparing this driver or
+passing its inert contract tests is not a successful live coding trial.
+
 Remote conversation execution needs a suitable typed task family; confidential
 execution additionally requires actual protection against the executing host.
 

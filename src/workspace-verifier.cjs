@@ -16,6 +16,15 @@ const validText = value => typeof value === 'string' && !value.includes('\0') &&
 const identity = info => `${info.dev}:${info.ino}`;
 const version = info => `${identity(info)}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
 
+// Shared owner boundary for local checks and explicitly approved file proposals.
+function workspaceDirectory(workspace) {
+  if (!validText(workspace) || !path.isAbsolute(workspace)) throw Error('workspace_verifier_configuration');
+  const directory = fs.realpathSync(workspace), info = fs.statSync(directory);
+  if (!info.isDirectory() || info.uid !== process.getuid() || (info.mode & 0o022) ||
+      directory === '/' || directory === fs.realpathSync(os.homedir())) throw Error('workspace_verifier_configuration');
+  return Object.freeze({directory, identity: identity(info)});
+}
+
 function trustedExecutable(file) {
   if (!validText(file) || !path.isAbsolute(file)) throw Error('workspace_verifier_configuration');
   const canonical = fs.realpathSync(file), info = fs.statSync(canonical);
@@ -89,10 +98,8 @@ function createWorkspaceVerifier({workspace, executable, args, timeoutMs = 15000
       !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000 || typeof approve !== 'function') {
     throw Error('workspace_verifier_configuration');
   }
-  const directory = fs.realpathSync(workspace), info = fs.statSync(directory);
-  if (!info.isDirectory() || info.uid !== process.getuid() || (info.mode & 0o022) ||
-      directory === '/' || directory === fs.realpathSync(os.homedir())) throw Error('workspace_verifier_configuration');
-  const workspaceIdentity = identity(info), command = trustedExecutable(executable), sandbox = trustedExecutable(BWRAP);
+  const captured = workspaceDirectory(workspace), directory = captured.directory;
+  const workspaceIdentity = captured.identity, command = trustedExecutable(executable), sandbox = trustedExecutable(BWRAP);
   const argv = Object.freeze([...args]);
   let running = false;
   return async function verify({round, remainingMs, signal} = {}) {
@@ -186,4 +193,4 @@ function createWorkspaceVerifier({workspace, executable, args, timeoutMs = 15000
   };
 }
 
-module.exports = {createWorkspaceVerifier};
+module.exports = {createWorkspaceVerifier, workspaceDirectory};
