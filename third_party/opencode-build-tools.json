@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "bun": {
+    "version": "1.3.14",
+    "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip",
+    "archive_bytes": 35969274,
+    "archive_sha256": "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f",
+    "member": "bun-linux-x64/bun",
+    "maximum_extracted_bytes": 150000000,
+    "checksum_source": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/SHASUMS256.txt",
+    "release_source": "https://api.github.com/repos/oven-sh/bun/releases/tags/bun-v1.3.14",
+    "scope": "explicit workspace-only source-build tool; not an application download channel"
+  }
+}

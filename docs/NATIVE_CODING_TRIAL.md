@@ -157,6 +157,23 @@ arguments, paths or identifiers. Historical version-1/2 receipts remain readable
 The bounded continuation and these diagnostics have offline controller/protocol
 coverage, not a newly successful model-driven read/edit/test proof.
 
+The actual [run 36932657647](https://github.com/VOLPAROSSA/volparossa/actions/runs/36932657647)
+on core `c3fb587f6cdcdc9fd1e0a1dd31a9a0bb6001706c` / Code `2f7014b0`
+now reaches that continuation: one read is executed, the first native turn ends,
+then another real tool proposal is refused by the fixture's exact command policy.
+One command is accepted, one declined in category `command`; edit and test remain
+false. All three model responses are complete and cleanup-confirmed (function
+call, assistant, function call). The rejected command text is not retained, so
+its intended action and correctness are unknown. Runtime exits normally and
+private/service cleanup and unchanged host-state checks pass. This is a failed
+read/edit/test proof, not a successful coding task or a reason to loosen that
+fixture's existing success criteria.
+
+The separate [native editor integration](NATIVE_EDITOR.md) uses the user's actual
+chosen workspace and interactive command approvals, rather than the arithmetic
+fixture's special command list. Its frontend/launcher implementation and narrow
+checks do not supersede this failed model-driven evidence.
+
 Success requires the actual app-server's command-completion events, changed file
 hash, independent passing tests, at least four cleanup-confirmed real core
 responses, exact thread unsubscribe and graceful runtime exit. Partial responses,
