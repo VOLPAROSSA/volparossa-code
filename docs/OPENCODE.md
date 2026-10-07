@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`41c2f66437140360f09e706fb684d6f3046ac514` and llama.cpp source
+`7739206361aa0aeb7cf0b20d9f8cf1cc9da5c81b` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.

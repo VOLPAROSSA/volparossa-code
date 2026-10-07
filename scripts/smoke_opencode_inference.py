@@ -36,7 +36,7 @@ LARGE_CORE = '6a517b576baa17e7329661ee0476d1848081d114'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
 # Native converter/process cleanup plus the reviewed unique CLI argument group.
-NATIVE_CORE = '41c2f66437140360f09e706fb684d6f3046ac514'
+NATIVE_CORE = '7739206361aa0aeb7cf0b20d9f8cf1cc9da5c81b'
 NATIVE_SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
