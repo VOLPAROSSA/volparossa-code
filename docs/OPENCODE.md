@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`7308371b20ced0504662178beb0e46586cfc9d2d` and llama.cpp source
+`41c2f66437140360f09e706fb684d6f3046ac514` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
@@ -759,8 +759,28 @@ helper PID and actual cgroup counters. Only then may it exit, still requiring
 status `0` and an empty unit. The same absolute 1,800-second build deadline
 includes the handshake. Missing/mismatched/late messages, unavailable counters
 and failed exits remain failures. Closed substate, stage and exception-category
-diagnostics expose no raw logs or private paths. This correction is not yet
-verified by another actual native trial.
+diagnostics expose no raw logs or private paths.
+
+The original follow-up [trial37614132814](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37614132814)
+on Code `01c5c591b16ed34226341e04fe673a35a7a169de` and core `7308371b`
+now proves that source build and handshake complete: a verified library/manifest,
+successful exit and observed build peak of 1,031,565,312 bytes with zero swap/OOM.
+The trial nevertheless **failed** at `model-provision` with `native_conversion`,
+process status 1. Wheel-graph and runtime-import checks passed first; the generic
+conversion marker does not preserve the failed substage or exception. Those
+build counters are not conversion resource measurements. No inference or coding
+task was reached. All reported private-data, unit, process-group, QEMU and scratch
+cleanup checks pass, with scoped routes/DNS unchanged. Original ZIP SHA-256:
+`d4b32d66e90d4c76568b2fa989cbab5e49bbb736283868a03a81f9ae0303a254`;
+job `112768290137` log SHA-256:
+`6e561f75a15560a56f3d98c1a49e518c52ad543646ea1463c7f475e5ec2d0ce6`.
+The follow-up adds bounded conversion diagnostics without exporting raw logs,
+paths or model content; it is not a demonstrated conversion fix.
+Native-only detail distinguishes absent, invalid, unknown and reported failure;
+it cannot report success. Duplicate fields/markers, malformed values and a
+claimed child failure without a nonzero integer exit status are rejected.
+All sixty-one native, smoke and CI fixture checks pass, independently repeated
+by root. Default Torch summaries and all trial limits remain unchanged.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow

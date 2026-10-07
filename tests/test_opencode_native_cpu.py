@@ -36,7 +36,7 @@ KIND = 'llama_cpp_bf16_v1'
 
 class Contracts(unittest.TestCase):
     def test_native_is_refused_without_final_pin_and_cannot_replace_default(self):
-        self.assertEqual(TRIAL.NATIVE_CORE, '7308371b20ced0504662178beb0e46586cfc9d2d')
+        self.assertEqual(TRIAL.NATIVE_CORE, '41c2f66437140360f09e706fb684d6f3046ac514')
         original = TRIAL.trial_profile(TRIAL.LARGE_MODEL)
         self.assertNotIn('inference_backend', original)
         with patch.object(TRIAL, 'NATIVE_CORE', None), self.assertRaisesRegex(ValueError, 'native_core_not_pinned'):
@@ -284,7 +284,8 @@ sudo() { return 99; }
             path.chmod(0o600)
             legacy = TRIAL.closed_provision(path, None, 'process', 1)
             native = TRIAL.closed_provision(path, None, 'process', 1, native_cpu=True)
-            self.assertEqual(set(legacy), set(native))
+            self.assertEqual(set(legacy) | {'native_conversion'}, set(native))
+            self.assertEqual(native['native_conversion']['state'], 'absent')
             self.assertEqual(legacy['failure_class'], 'runtime_subprocess')
             self.assertEqual(native['failure_class'], 'native_conversion')
             self.assertNotIn('CANARY', json.dumps(native))
@@ -293,6 +294,90 @@ sudo() { return 99; }
                 path.write_bytes(raw)
                 self.assertNotEqual(TRIAL.closed_provision(path, None, 'process', 1, native_cpu=True)
                                     ['failure_class'], 'native_conversion')
+
+    @staticmethod
+    def conversion_line(**changes):
+        value = dict(version=1, kind='native-conversion-failure', stage='convert',
+                     failure='child_failed', child_exit_status=7)
+        value.update(changes)
+        return b'NATIVE_CONVERSION_DIAGNOSTIC ' + json.dumps(value).encode()
+
+    def test_conversion_failure_schema_preserves_closed_stage_and_child_status(self):
+        stages = ('guard', 'source', 'runtime', 'model', 'build', 'budget', 'convert', 'tokenizer',
+                  'verify', 'recheck', 'bundle', 'manifest', 'permissions')
+        failures = ('cancelled', 'timeout', 'missing_file', 'permission', 'memory', 'import',
+                    'subprocess', 'os_error', 'invalid_shape', 'child_failed', 'disk_budget', 'contract')
+        for stage in stages:
+            for failure in failures:
+                with self.subTest(stage=stage, failure=failure):
+                    value = TRIAL.closed_conversion([self.conversion_line(stage=stage, failure=failure),
+                                                     b'NATIVE_CONVERSION_FAILED'], 'present', 1)
+                    self.assertEqual(value, dict(state='reported_failure', stage=stage,
+                                                 failure=failure, child_exit_status=7))
+        for status in (-128, -15, -9, 0, 255, None):
+            with self.subTest(status=status):
+                value = TRIAL.closed_conversion([self.conversion_line(failure='timeout', child_exit_status=status),
+                                                 b'NATIVE_CONVERSION_FAILED'], 'present', 1)
+                self.assertEqual(value['child_exit_status'], status)
+                self.assertEqual(value['state'], 'reported_failure')
+
+    def test_conversion_absent_unknown_invalid_and_forged_success_stay_unproven(self):
+        for lines in ([], [b'NATIVE_CONVERSION_FAILED'], [b'prefix ' + self.conversion_line()]):
+            self.assertEqual(TRIAL.closed_conversion(lines, 'present', 1)['state'], 'absent')
+        for changes in ({'stage': 'unknown'}, {'failure': 'unknown'}):
+            result = TRIAL.closed_conversion([self.conversion_line(**changes), b'NATIVE_CONVERSION_FAILED'], 'present', 1)
+            self.assertEqual(result['state'], 'unknown')
+        for changes in ({'version': True}, {'version': 2}, {'kind': 'native-conversion-success'},
+                        {'stage': 'complete'}, {'stage': ['CANARY']}, {'stage': 'CANARY'},
+                        {'failure': 'success'}, {'failure': 'CANARY'}, {'child_exit_status': True},
+                        {'child_exit_status': -129}, {'child_exit_status': 256}, {'child_exit_status': '7'},
+                        {'child_exit_status': 0}, {'child_exit_status': None}, {'private_path': 'CANARY'}):
+            result = TRIAL.closed_conversion([self.conversion_line(**changes), b'NATIVE_CONVERSION_FAILED'], 'present', 1)
+            self.assertEqual(result, dict(state='invalid', stage='unknown', failure='unknown', child_exit_status=None))
+            self.assertNotIn('CANARY', json.dumps(result))
+        for status in (0, None, True, 256):
+            result = TRIAL.closed_conversion([self.conversion_line(), b'NATIVE_CONVERSION_FAILED'], 'present', status)
+            self.assertEqual(result['state'], 'invalid')
+        for state, expected in (('absent', 'absent'), ('invalid', 'invalid'), ('truncated', 'invalid')):
+            self.assertEqual(TRIAL.closed_conversion([self.conversion_line(), b'NATIVE_CONVERSION_FAILED'],
+                                                    state, 1)['state'], expected)
+
+    def test_conversion_duplicate_malformed_and_missing_markers_are_rejected(self):
+        valid = self.conversion_line()
+        mutations = ([valid], [valid, valid, b'NATIVE_CONVERSION_FAILED'],
+            [valid, b'NATIVE_CONVERSION_FAILED', b'NATIVE_CONVERSION_FAILED'],
+            [valid.replace(b'"version": 1', b'"version": 0, "version": 1'), b'NATIVE_CONVERSION_FAILED'],
+            [b'NATIVE_CONVERSION_DIAGNOSTIC {', b'NATIVE_CONVERSION_FAILED'],
+            [b'NATIVE_CONVERSION_DIAGNOSTIC []', b'NATIVE_CONVERSION_FAILED'],
+            [b'NATIVE_CONVERSION_DIAGNOSTIC null', b'NATIVE_CONVERSION_FAILED'],
+            [b'NATIVE_CONVERSION_DIAGNOSTIC "\\ud800"', b'NATIVE_CONVERSION_FAILED'],
+            [b'NATIVE_CONVERSION_DIAGNOSTIC ' + b'x' * 1025, b'NATIVE_CONVERSION_FAILED'],
+            [b'NATIVE_CONVERSION_DIAGNOSTIC \xff', b'NATIVE_CONVERSION_FAILED'])
+        for lines in mutations:
+            with self.subTest(lines=lines):
+                self.assertEqual(TRIAL.closed_conversion(lines, 'present', 1),
+                                 dict(state='invalid', stage='unknown', failure='unknown', child_exit_status=None))
+
+    def test_conversion_detail_flows_into_final_provision_summary_only_when_selected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'provision.log'
+            raw = self.conversion_line(stage='verify', failure='contract', child_exit_status=0) \
+                + b'\nNATIVE_CONVERSION_FAILED\nProvisioning refused: Command CANARY returned non-zero exit status 1.\n'
+            path.write_bytes(raw)
+            path.chmod(0o600)
+            native = TRIAL.closed_provision(path, None, 'process', 1, native_cpu=True)
+            self.assertEqual(native['failure_class'], 'native_conversion')
+            self.assertEqual(native['native_conversion'], dict(state='reported_failure', stage='verify',
+                                                              failure='contract', child_exit_status=0))
+            self.assertNotIn('CANARY', json.dumps(native))
+            self.assertNotIn('native_conversion', TRIAL.closed_provision(path, None, 'process', 1))
+            path.write_bytes(raw + b'x' * 131073)
+            self.assertEqual(TRIAL.closed_provision(path, None, 'process', 1, native_cpu=True)
+                             ['native_conversion']['state'], 'invalid')
+            path.write_bytes(raw + self.conversion_line() + b'\n')
+            native = TRIAL.closed_provision(path, None, 'process', 1, native_cpu=True)
+            self.assertEqual(native['failure_class'], 'native_conversion')
+            self.assertEqual(native['native_conversion']['state'], 'invalid')
 
     def test_native_unit_diagnostics_are_closed_and_do_not_invent_log_inspection(self):
         value = TRIAL.closed_native_unit({'ActiveState': 'failed', 'Result': 'timeout',

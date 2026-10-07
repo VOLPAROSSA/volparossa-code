@@ -36,7 +36,7 @@ LARGE_CORE = '6a517b576baa17e7329661ee0476d1848081d114'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
 # Native converter/process cleanup plus the reviewed unique CLI argument group.
-NATIVE_CORE = '7308371b20ced0504662178beb0e46586cfc9d2d'
+NATIVE_CORE = '41c2f66437140360f09e706fb684d6f3046ac514'
 NATIVE_SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
@@ -110,6 +110,47 @@ def load(path, maximum=2 * 1024**2):
     return json.loads(path.read_bytes())
 
 
+def closed_conversion(lines, log_state, process_status):
+    """A diagnostic can report failure, never establish successful conversion."""
+    value = dict(state='absent', stage='unknown', failure='unknown', child_exit_status=None)
+    if log_state != 'present':
+        value['state'] = 'absent' if log_state == 'absent' else 'invalid'
+        return value
+    prefix = b'NATIVE_CONVERSION_DIAGNOSTIC '
+    rows = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not rows:
+        return value
+    value['state'] = 'invalid'
+    if len(rows) != 1 or len(rows[0]) > 1024 or lines.count(b'NATIVE_CONVERSION_FAILED') != 1 \
+            or type(process_status) is not int or not -128 <= process_status <= 255 or process_status == 0:
+        return value
+    def unique(pairs):
+        result = {}
+        for key, item in pairs:
+            require(key not in result, 'duplicate_conversion_field')
+            result[key] = item
+        return result
+    try:
+        row = json.loads(rows[0], object_pairs_hook=unique)
+        stages = {'guard', 'source', 'runtime', 'model', 'build', 'budget', 'convert', 'tokenizer',
+                  'verify', 'recheck', 'bundle', 'manifest', 'permissions', 'unknown'}
+        failures = {'cancelled', 'timeout', 'missing_file', 'permission', 'memory', 'import', 'subprocess',
+                    'os_error', 'invalid_shape', 'child_failed', 'disk_budget', 'contract', 'unknown'}
+        require(type(row) is dict and set(row) == {'version', 'kind', 'stage', 'failure', 'child_exit_status'}
+                and type(row['version']) is int and row['version'] == 1
+                and row['kind'] == 'native-conversion-failure'
+                and type(row['stage']) is str and row['stage'] in stages
+                and type(row['failure']) is str and row['failure'] in failures
+                and (row['child_exit_status'] is None or (type(row['child_exit_status']) is int
+                     and -128 <= row['child_exit_status'] <= 255)), 'conversion_diagnostic_shape')
+        require(row['failure'] != 'child_failed' or (type(row['child_exit_status']) is int
+                and row['child_exit_status'] != 0), 'conversion_child_status')
+        return dict(state='unknown' if 'unknown' in (row['stage'], row['failure']) else 'reported_failure',
+                    **{key: row[key] for key in ('stage', 'failure', 'child_exit_status')})
+    except (ValueError, TypeError, KeyError, UnicodeError):
+        return value
+
+
 def closed_provision(path, pins, stage, returncode, wait_timeout=False, native_cpu=False):
     """Bounded metadata only; progress means download starts, not verified assets."""
     stages = {'pins', 'launch', 'process', 'report', 'provenance', 'complete'}
@@ -119,6 +160,7 @@ def closed_provision(path, pins, stage, returncode, wait_timeout=False, native_c
         download_starts=0, last_artifact_index=None, failure_class='unknown', http_status=None,
         wheel_graph_checked=False, runtime_import_checked=False)
     native_conversion_failed = False
+    lines = []
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(descriptor, 'rb') as stream:
@@ -190,6 +232,8 @@ def closed_provision(path, pins, stage, returncode, wait_timeout=False, native_c
         value['log_state'] = 'invalid'
     if native_conversion_failed and value['log_state'] == 'present':
         value['failure_class'] = 'native_conversion'
+    if native_cpu is True:
+        value['native_conversion'] = closed_conversion(lines, value['log_state'], value['process_status'])
     return value
 
 
