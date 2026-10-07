@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`773d6377e5263c24a9263f7b97b5c9ae739b3f74` and llama.cpp source
+`f4cd8bd7ca310794dfc73cfcd096d6baedcf73bf` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
@@ -831,6 +831,46 @@ job `112826781182` log SHA-256:
 The consumed dispatch receipts and all earlier failures remain unchanged;
 there has been no repeat dispatch or main merge.
 
+The new owner-responsive verification [trial 37641148934](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37641148934),
+attempt 1 on Code `d48801a6` / core `773d6377`, **fails** after build, conversion
+and provisioning succeed with the same complete BF16 model. The worker now
+acknowledges all 20 issued owner controls and reaches `model_load/begin`, then
+reports `worker_other`. This closed diagnostic does not identify the precise
+native load failure. No native turn, tool call or coding task completes; six
+failed runtime requests have confirmed cleanup.
+
+Core cgroup peak is 8,106,295,296 bytes within the 11 GiB limit, with zero swap
+and OOM kills. Owned units, processes, private data, QEMU and scratch cleanup
+pass. Normalized route/DNS observations match; raw IPv6 route bytes differ in
+the excluded counter column, not a byte-identical snapshot. No raw model output
+was exported. Original artifact `11492792961` ZIP SHA-256:
+`b2621c8918f1304848fcc4a7b9e736fab2379cdf19c29de9ab11606e5c9e9cfc`;
+job `112860150266` log SHA-256:
+`4e32650af9e373e5e28ec93663777f1fe833feee419a5fe604fcfdfa6b7ec438`.
+This follow-up has its own consumed once-only receipts; no repeat was sent.
+
+The current source candidate bounds tensor validation in both upstream loading
+paths to one execution thread, while still validating every tensor on success.
+Owner controls are serviced between tensors; a single tensor remains
+non-interruptible, and cancellation rejects the whole load. Closed native
+load-stage diagnostics expose no raw model output or exception text. This
+corrects a source-proven unbounded validation launch; it does not retrospectively
+establish the cause of the preceding trial's failure.
+
+Code now requires the core's build-manifest v2, including original/effective
+loader and patch provenance, and verifies the actual compiled loader source.
+The core checkout stays unchanged. Its builder imports the exact sibling
+contract afresh, without changing the module search path or retaining a
+temporary import binding. Old v1 manifests, altered patches, mismatched compile
+sources and changed copied build reports are rejected. The native library ABI
+remains version 1; the build-manifest version is a separate contract.
+
+Focused inert checks cover the source-pinned import, provenance, tampering and
+unchanged resource profile. A separate core source-only build passes its narrow
+ABI and validation checks. Neither proves a full model load or successful coding
+task on this candidate; a new separately authorized isolated trial is required.
+The model, original prompt, precision, deadlines and memory limits are unchanged.
+
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
 exposes the same explicit choice. It must be registered and dispatched against
@@ -855,6 +895,7 @@ build-shell selector now forwards the explicit backend choice too; an inert
 shell-prefix regression reproduces the previous mismatch before any profile,
 privileged operation or build. Source-only CI also covers stacked pull requests,
 with unchanged checks and permissions. No actual
-conversion, native model inference or successful coding loop has yet been proved.
+native model inference or successful coding loop has yet been proved. Conversion
+and provisioning are demonstrated by the separate real trials above.
 The core's retained full upstream sanitizer failure on a disallowed quantized
 path also remains explicit; separate BF16/F32 checks do not erase that failure.

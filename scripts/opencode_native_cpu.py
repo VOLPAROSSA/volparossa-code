@@ -17,6 +17,7 @@ import socket
 import stat
 import struct
 import subprocess
+import sys
 import time
 
 SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
@@ -37,9 +38,27 @@ def require(value, reason):
 
 
 def module(path, name):
+    # The core archive is already source-pinned by the trial. Load its exact
+    # sibling contract, never a same-named module from sys.path or a prior core.
+    require(path.is_absolute() and path.resolve(strict=True) == path, 'native_module_path')
+    file_identity(path, 1024 ** 2)
     spec = importlib.util.spec_from_file_location(name, path)
     value = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(value)
+    if path.name == 'build_llama_cpu.py':
+        native = module(path.with_name('llama_cpu.py'), 'trial_native_contract')
+        absent = object()
+        previous = sys.modules.get('llama_cpu', absent)
+        try:
+            sys.modules['llama_cpu'] = native
+            spec.loader.exec_module(value)
+            require(getattr(value, 'native', None) is native, 'native_builder_contract')
+        finally:
+            if previous is absent:
+                sys.modules.pop('llama_cpu', None)
+            else:
+                sys.modules['llama_cpu'] = previous
+    else:
+        spec.loader.exec_module(value)
     return value
 
 
@@ -121,7 +140,8 @@ def validate_build(core, base):
     require(builder.SOURCE == SOURCE and builder.ORIGIN == ORIGIN and builder.KIND == KIND, 'native_builder_pin')
     tree = builder.verify_source(base / 'llama-source')
     value, report_hash = document(base / 'llama-build/build.json', 65536)
-    require(value.get('version') == 1 and value.get('kind') == KIND and value.get('source_commit') == SOURCE
+    builder.native.validate_build_provenance(value, require)
+    require(value.get('kind') == KIND and value.get('source_commit') == SOURCE
             and value.get('source_tree') == tree and value.get('abi_version') == 1
             and value.get('jobs') == 2 and value.get('cpu') == 'avx2_fma_f16c'
             and value.get('models_loaded') is False and value.get('downloads') is False
@@ -131,8 +151,10 @@ def validate_build(core, base):
     library = file_identity(base / 'llama-build/libvolparossa_llama_cpu.so', 128 * 1024 ** 2)
     require(value.get('library') == {'path': 'libvolparossa_llama_cpu.so', **library}, 'native_library_binding')
     wrapper = {name: file_identity(core / 'workers/volparossa-ml/native-cpu' / name, 1024 ** 2)
-               for name in ('CMakeLists.txt', 'adapter.h', 'adapter.cpp')}
+               for name in ('CMakeLists.txt', 'adapter.h', 'adapter.cpp', 'bounded-tensor-validation.patch')}
     require(value.get('wrapper_sources') == wrapper, 'native_wrapper_binding')
+    builder.verify_loader_compilation(base / 'llama-build',
+                                      base / 'llama-build/loader-overlay/llama-model-loader.cpp')
     require(type(value.get('dynamic_dependencies')) is list
             and value['dynamic_dependencies'] and len(set(value['dynamic_dependencies'])) == len(value['dynamic_dependencies'])
             and set(value['dynamic_dependencies']) <= builder.ALLOWED_NEEDED, 'native_dependency_binding')
@@ -157,8 +179,9 @@ def validate_provision(core, base, report, build):
     require(manifest_hash == backend['backend_sha256'] and value['model_profile'] == MODEL
             and value['build_manifest_sha256'] == build['build_manifest_sha256']
             and value['library'] == {'path': 'libvolparossa_llama_cpu.so', **build['library']}, 'native_manifest_binding')
-    _, build_hash = document(root / 'build.json', 65536)
+    copied_build, build_hash = document(root / 'build.json', 65536)
     require(build_hash == build['build_manifest_sha256'], 'native_copied_build_binding')
+    native.validate_build_provenance(copied_build, require)
     for name, maximum in (('library', 128 * 1024 ** 2), ('gguf', 9 * 1024 ** 3)):
         require(value[name] == {'path': value[name]['path'], **file_identity(root / value[name]['path'], maximum)},
                 'native_artifact_binding')

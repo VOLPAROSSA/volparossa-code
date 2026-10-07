@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert native fixture bindings; no source fetch, build, library or model load."""
 import hashlib
+import copy
 import importlib.util
 import inspect
 import io
@@ -16,7 +17,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +37,7 @@ KIND = 'llama_cpp_bf16_v1'
 
 class Contracts(unittest.TestCase):
     def test_native_is_refused_without_final_pin_and_cannot_replace_default(self):
-        self.assertEqual(TRIAL.NATIVE_CORE, '773d6377e5263c24a9263f7b97b5c9ae739b3f74')
+        self.assertEqual(TRIAL.NATIVE_CORE, 'f4cd8bd7ca310794dfc73cfcd096d6baedcf73bf')
         original = TRIAL.trial_profile(TRIAL.LARGE_MODEL)
         self.assertNotIn('inference_backend', original)
         with patch.object(TRIAL, 'NATIVE_CORE', None), self.assertRaisesRegex(ValueError, 'native_core_not_pinned'):
@@ -701,8 +702,8 @@ value.await_release(Path(sys.argv[2]), {'build_manifest_sha256': 'a' * 64},
         library = artifact(build_root / 'libvolparossa_llama_cpu.so', b'inert library bytes, never loaded')
         (backend / 'libvolparossa_llama_cpu.so').write_bytes((build_root / 'libvolparossa_llama_cpu.so').read_bytes())
         wrapper = {name: artifact(wrappers / name, b'inert source ' + name.encode())
-                   for name in ('CMakeLists.txt', 'adapter.h', 'adapter.cpp')}
-        raw_build = dict(version=1, kind=KIND, source_commit=NATIVE.SOURCE, source_tree='b' * 40,
+                   for name in ('CMakeLists.txt', 'adapter.h', 'adapter.cpp', 'bounded-tensor-validation.patch')}
+        raw_build = dict(version=2, kind=KIND, source_commit=NATIVE.SOURCE, source_tree='b' * 40,
                          abi_version=1, jobs=2, cpu='avx2_fma_f16c', models_loaded=False, downloads=False,
                          install=False, sanitizers=False, provisionable=True, quantization=False,
                          library={'path': 'libvolparossa_llama_cpu.so', **library}, wrapper_sources=wrapper,
@@ -719,9 +720,10 @@ value.await_release(Path(sys.argv[2]), {'build_manifest_sha256': 'a' * 64},
                                       'backend_sha256': hashlib.sha256((backend / 'backend.json').read_bytes()).hexdigest()})
         # Core parsers/builders have separate tests; these doubles exercise only
         # this fixture consumer's artifact/provenance checks, not model evidence.
+        parser = SimpleNamespace(validate_manifest=Mock(), validate_build_provenance=Mock())
         builder = SimpleNamespace(SOURCE=NATIVE.SOURCE, ORIGIN=NATIVE.ORIGIN, KIND=KIND,
-                                  ALLOWED_NEEDED={'libc.so.6'}, verify_source=lambda _path: 'b' * 40)
-        parser = SimpleNamespace(validate_manifest=lambda _value, _require: None)
+                                  ALLOWED_NEEDED={'libc.so.6'}, verify_source=lambda _path: 'b' * 40,
+                                  native=parser, verify_loader_compilation=Mock())
         return base, core, report, builder, parser
 
     def test_exact_build_and_converted_manifest_bind_actual_inert_bytes(self):
@@ -729,6 +731,13 @@ value.await_release(Path(sys.argv[2]), {'build_manifest_sha256': 'a' * 64},
             base, core, report, builder, parser = self.bundle_fixture(temp)
             with patch.object(NATIVE, 'module', return_value=builder):
                 build = NATIVE.validate_build(core, base)
+            parser.validate_build_provenance.assert_called_once_with(
+                json.loads((base / 'llama-build/build.json').read_bytes()), NATIVE.require)
+            builder.verify_loader_compilation.assert_called_once_with(
+                base / 'llama-build', base / 'llama-build/loader-overlay/llama-model-loader.cpp')
+            self.assertEqual(set(build), {'kind', 'source_commit', 'source_tree', 'build_manifest_sha256',
+                                         'library', 'wrapper_sources', 'jobs', 'nice', 'cpu',
+                                         'quantization', 'models_loaded'})
             with patch.object(NATIVE, 'module', return_value=parser):
                 result = NATIVE.validate_provision(core, base, report, build)
                 self.assertEqual(result['manifest_sha256'], report['native_backend']['backend_sha256'])
@@ -744,6 +753,153 @@ value.await_release(Path(sys.argv[2]), {'build_manifest_sha256': 'a' * 64},
             (core / 'workers/volparossa-ml/native-cpu/adapter.cpp').write_bytes(b'changed')
             with patch.object(NATIVE, 'module', return_value=builder), self.assertRaisesRegex(ValueError, 'native_wrapper_binding'):
                 NATIVE.validate_build(core, base)
+
+    def test_core_provenance_and_loader_rejections_are_not_swallowed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base, core, _report, builder, parser = self.bundle_fixture(temp)
+            with patch.object(NATIVE, 'module', return_value=builder):
+                parser.validate_build_provenance.side_effect = ValueError('CORE_PATCH_REJECTED')
+                with self.assertRaisesRegex(ValueError, 'CORE_PATCH_REJECTED'):
+                    NATIVE.validate_build(core, base)
+                builder.verify_loader_compilation.assert_not_called()
+                parser.validate_build_provenance.side_effect = None
+                builder.verify_loader_compilation.side_effect = ValueError('CORE_COMPILE_REJECTED')
+                with self.assertRaisesRegex(ValueError, 'CORE_COMPILE_REJECTED'):
+                    NATIVE.validate_build(core, base)
+
+    def test_patch_and_copied_build_tampering_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base, core, report, builder, parser = self.bundle_fixture(temp)
+            with patch.object(NATIVE, 'module', return_value=builder):
+                build = NATIVE.validate_build(core, base)
+                (core / 'workers/volparossa-ml/native-cpu/bounded-tensor-validation.patch').write_bytes(b'changed')
+                with self.assertRaisesRegex(ValueError, 'native_wrapper_binding'):
+                    NATIVE.validate_build(core, base)
+            copied = base / 'ml/native-backend/build.json'
+            original = copied.read_bytes()
+            with patch.object(NATIVE, 'module', return_value=parser):
+                copied.write_bytes(original + b' ')
+                with self.assertRaisesRegex(ValueError, 'native_copied_build_binding'):
+                    NATIVE.validate_provision(core, base, report, build)
+                copied.write_bytes(original)
+                parser.validate_build_provenance.side_effect = ValueError('CORE_COPIED_PATCH_REJECTED')
+                with self.assertRaisesRegex(ValueError, 'CORE_COPIED_PATCH_REJECTED'):
+                    NATIVE.validate_provision(core, base, report, build)
+
+    def test_builder_import_uses_only_exact_sibling_and_restores_import_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sibling = root / 'llama_cpu.py'
+            sibling.write_text('marker = "exact sibling"\n')
+            builder = root / 'build_llama_cpu.py'
+            builder.write_text('import llama_cpu as native\n')
+            original_path = list(sys.path)
+            for previous in (None, SimpleNamespace(marker='stale cached core')):
+                with patch.dict(sys.modules):
+                    if previous is None:
+                        sys.modules.pop('llama_cpu', None)
+                    else:
+                        sys.modules['llama_cpu'] = previous
+                    value = NATIVE.module(builder, 'inert_exact_core_builder')
+                    self.assertEqual(value.native.marker, 'exact sibling')
+                    self.assertEqual(Path(value.native.__file__), sibling)
+                    self.assertIsNot(value.native, previous)
+                    self.assertEqual(sys.path, original_path)
+                    if previous is None:
+                        self.assertNotIn('llama_cpu', sys.modules)
+                    else:
+                        self.assertIs(sys.modules['llama_cpu'], previous)
+            # Failed imports must restore state too, without falling back to an
+            # existing module when the actual sibling is missing or a symlink.
+            stale = SimpleNamespace(marker='must never be selected')
+            with patch.dict(sys.modules, {'llama_cpu': stale}):
+                builder.write_text('import llama_cpu as native\nraise ValueError("inert import failed")\n')
+                with self.assertRaisesRegex(ValueError, 'inert import failed'):
+                    NATIVE.module(builder, 'inert_failed_core_builder')
+                self.assertIs(sys.modules['llama_cpu'], stale)
+                builder.write_text('native = None\n')
+                with self.assertRaisesRegex(ValueError, 'native_builder_contract'):
+                    NATIVE.module(builder, 'inert_rebound_core_builder')
+                self.assertIs(sys.modules['llama_cpu'], stale)
+                sibling.unlink()
+                with self.assertRaises(OSError):
+                    NATIVE.module(builder, 'inert_missing_core_builder')
+                elsewhere = root / 'wrong_core.py'
+                elsewhere.write_text('marker = "wrong core"\n')
+                sibling.symlink_to(elsewhere)
+                with self.assertRaisesRegex(ValueError, 'native_module_path'):
+                    NATIVE.module(builder, 'inert_symlink_core_builder')
+                self.assertIs(sys.modules['llama_cpu'], stale)
+                self.assertEqual(sys.path, original_path)
+
+    def actual_core_builder(self):
+        core = Path(os.environ['VOLPAROSSA_NATIVE_CORE_TEST_SOURCE']).resolve(strict=True)
+        self.assertEqual(subprocess.check_output(['git', '-C', str(core), 'rev-parse', 'HEAD'],
+                                                text=True, timeout=10).strip(), TRIAL.NATIVE_CORE)
+        for name in ('llama_cpu.py', 'build_llama_cpu.py'):
+            relative = 'workers/volparossa-ml/' + name
+            self.assertEqual((core / relative).read_bytes(), subprocess.check_output(
+                ['git', '-C', str(core), 'show', TRIAL.NATIVE_CORE + ':' + relative], timeout=10))
+        return NATIVE.module(core / 'workers/volparossa-ml/build_llama_cpu.py', 'actual_pinned_builder')
+
+    @unittest.skipUnless(os.environ.get('VOLPAROSSA_NATIVE_CORE_TEST_SOURCE'),
+                         'requires explicitly retained exact core source; never downloads')
+    def test_actual_pinned_core_import_and_v2_provenance(self):
+        core = Path(os.environ['VOLPAROSSA_NATIVE_CORE_TEST_SOURCE']).resolve(strict=True)
+        stale = SimpleNamespace(marker='stale cached module')
+        original_path = list(sys.path)
+        with patch.dict(sys.modules, {'llama_cpu': stale}), patch('ctypes.CDLL') as library:
+            builder = self.actual_core_builder()
+            self.assertIs(sys.modules['llama_cpu'], stale)
+            self.assertEqual(sys.path, original_path)
+            self.assertEqual(Path(builder.native.__file__), core / 'workers/volparossa-ml/llama_cpu.py')
+            native = builder.native
+            value = dict(version=2, source_commit=native.SOURCE, source_tree=native.SOURCE_TREE,
+                         source_overlay=native.loader_provenance(), loader_compile_source_verified=True,
+                         upstream_original_unchanged=True)
+            native.validate_build_provenance(value, NATIVE.require)
+            for changes in ({'version': 1}, {'version': True}, {'source_tree': '0' * 40},
+                            {'source_commit': '0' * 40}, {'source_overlay': {}},
+                            {'loader_compile_source_verified': False}, {'upstream_original_unchanged': False}):
+                with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'NATIVE_BUILD_PATCH_BINDING'):
+                    native.validate_build_provenance(dict(value, **changes), NATIVE.require)
+            for field in ('patch_sha256', 'effective_sha256', 'complete_tensor_validation',
+                          'owner_poll_between_tensors', 'validation_execution_threads'):
+                changed = copy.deepcopy(value)
+                changed['source_overlay'][field] = None
+                with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'NATIVE_BUILD_PATCH_BINDING'):
+                    native.validate_build_provenance(changed, NATIVE.require)
+            library.assert_not_called()
+
+    @unittest.skipUnless(os.environ.get('VOLPAROSSA_NATIVE_CORE_TEST_SOURCE')
+                         and os.environ.get('VOLPAROSSA_NATIVE_LOADER_TEST_SOURCE'),
+                         'requires retained exact core and patched loader source; never builds')
+    def test_actual_pinned_core_compile_source_proof_rejects_tampering(self):
+        builder = self.actual_core_builder()
+        retained = Path(os.environ['VOLPAROSSA_NATIVE_LOADER_TEST_SOURCE'])
+        self.assertEqual(NATIVE.file_identity(retained, 1024 ** 2)['sha256'],
+                         builder.native.LOADER_EFFECTIVE_SHA)
+        raw = retained.read_bytes()
+        with tempfile.TemporaryDirectory() as temp, patch('ctypes.CDLL') as library:
+            output = Path(temp)
+            (output / 'build').mkdir()
+            (output / 'loader-overlay').mkdir()
+            loader = output / 'loader-overlay/llama-model-loader.cpp'
+            loader.write_bytes(raw)
+            database = output / 'build/compile_commands.json'
+            exact = {'file': str(loader)}
+            database.write_text(json.dumps([exact]))
+            builder.verify_loader_compilation(output, loader)
+            for rows in ([exact, exact], [{'file': str(output / 'original/llama-model-loader.cpp')}],
+                         [{'file': str(output / 'other.cpp')}]):
+                database.write_text(json.dumps(rows))
+                with self.subTest(rows=rows), self.assertRaisesRegex(ValueError, 'NATIVE_COMPILED_LOADER'):
+                    builder.verify_loader_compilation(output, loader)
+            database.write_text(json.dumps([exact]))
+            loader.write_bytes(raw + b'\n')
+            with self.assertRaisesRegex(ValueError, 'NATIVE_COMPILED_LOADER'):
+                builder.verify_loader_compilation(output, loader)
+            library.assert_not_called()
 
 
 if __name__ == '__main__':

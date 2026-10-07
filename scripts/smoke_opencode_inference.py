@@ -35,8 +35,8 @@ LARGE_MODEL = 'qwen3-4b-instruct-2507-v1'
 LARGE_CORE = '6a517b576baa17e7329661ee0476d1848081d114'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
-# Native cleanup and source-matched Qwen3 rotary metadata verification.
-NATIVE_CORE = '773d6377e5263c24a9263f7b97b5c9ae739b3f74'
+# Native complete tensor validation is bounded and source-provenance checked.
+NATIVE_CORE = 'f4cd8bd7ca310794dfc73cfcd096d6baedcf73bf'
 NATIVE_SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
