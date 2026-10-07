@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`10fd16dc78a0c91dee627b9d8bdab2226f2cc415` and llama.cpp source
+`773d6377e5263c24a9263f7b97b5c9ae739b3f74` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
@@ -800,8 +800,36 @@ validated attention key length when that optional value is absent. Verification
 now follows the same rule while still rejecting an incorrect explicit rotary
 length or any missing required model parameter. This is a targeted correction,
 not retrospective proof of the first failed assertion or a successful conversion.
-Tensor, tokenizer, prompt and resource checks remain unchanged. A fresh isolated
-trial is required after both repositories pass their source checks.
+Tensor, tokenizer, prompt and resource checks remain unchanged.
+
+After both exact-source checks passed, [trial 37631532611](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37631532611)
+on Code `8a7034d5e09cf34f8ac67742f347eb657f769440` and core
+`10fd16dc78a0c91dee627b9d8bdab2226f2cc415` **failed during the OpenCode
+task**. Source build, conversion and model provisioning now succeed, with a
+verified 8,051,283,488-byte BF16 GGUF. The worker reports
+`compute_control_ack_deadline` at `verify_files/begin`: an I/O-pressure pause
+was not acknowledged while hashing the full original weights. Source review
+found missing execution-thread checkpoints in that hash loop and subsequent
+native verification. The new core pin processes controls between unchanged
+1 MiB reads during preparation, native bundle validation and post-execution
+rehashing. All 138 targeted core worker/native checks pass, independently
+repeated, including real-file/owner-pipe pause, resume, cancel and unchanged
+deadline tests. No integrity checks, resources or deadlines were relaxed.
+A single blocking read can still exceed the control deadline; a new actual
+large-model trial is required before claiming that execution succeeds.
+
+No native model turn or tool call completed. Six requests failed within this
+single workflow, with cleanup confirmed for all six. Core peak memory was
+2,303,844,352 bytes, with zero OOM kills and swap. All reported owned-unit,
+process-group, private-data, QEMU and scratch cleanup passed; scoped host-state
+files match. No raw model output was exported. Conversion is now demonstrated,
+but inference, successful coding and protected peer execution remain unproved.
+Original artifact ZIP SHA-256:
+`78c4732774fc93dae9872df0460e2addf7f3849a6a190f803069fbc7d6a6e9c8`;
+job `112826781182` log SHA-256:
+`ef7d5c7bbeeebf497ec9a42881746a782b36f7c7bddc9febef11d7af373cb44f`.
+The consumed dispatch receipts and all earlier failures remain unchanged;
+there has been no repeat dispatch or main merge.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
