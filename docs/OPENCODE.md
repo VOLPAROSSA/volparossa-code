@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`bccd7f3ee613f4132a506e32b1f098806d81ec44` and llama.cpp source
+`36d616fb6d79a36fe7c8ee95c4ad84bd56b561ae` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
@@ -901,6 +901,13 @@ or accept the rejected output, establish a unique prompt/template cause, or
 prove another model execution. The wire result remains `invalid_output`; the
 single-call contract, complete prompt/model, resources and deadlines are unchanged.
 No model trial has run on this diagnostic follow-up.
+
+The exact pin includes main's independently verified public-filter snapshot
+milestone. Its only merge conflict was two adjacent implementation-status
+sections; both are retained. Native inference and diagnostics remain byte-for-byte
+identical to `bccd7f3e`. This integration needs fresh exact-source CI; earlier
+CodeQL results are not substituted for an absent Quality run on the conflicted
+parent branch.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow

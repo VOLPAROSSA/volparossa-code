@@ -37,7 +37,7 @@ KIND = 'llama_cpp_bf16_v1'
 
 class Contracts(unittest.TestCase):
     def test_native_is_refused_without_final_pin_and_cannot_replace_default(self):
-        self.assertEqual(TRIAL.NATIVE_CORE, 'bccd7f3ee613f4132a506e32b1f098806d81ec44')
+        self.assertEqual(TRIAL.NATIVE_CORE, '36d616fb6d79a36fe7c8ee95c4ad84bd56b561ae')
         original = TRIAL.trial_profile(TRIAL.LARGE_MODEL)
         self.assertNotIn('inference_backend', original)
         with patch.object(TRIAL, 'NATIVE_CORE', None), self.assertRaisesRegex(ValueError, 'native_core_not_pinned'):
