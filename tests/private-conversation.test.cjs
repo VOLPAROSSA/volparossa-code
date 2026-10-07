@@ -159,6 +159,59 @@ test('closed 4B profile binds exact template, limits, greedy policy and returned
   }
 });
 
+test('owner-selected native CPU capability pair preserves greedy socket requests and unchanged summaries', async t => {
+  // Framed socket contract only; no native backend, model or OpenCode is loaded.
+  const model = 'qwen3-4b-instruct-2507-v1';
+  for (const backend of [{}, {inference_backend: 'llama_cpp_bf16_v1', required_generation_policy: 'greedy_v1'}]) {
+    const negotiated = {...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'],
+      execution_error_version: 1, ...backend};
+    const request = {...input(), generation_policy: 'greedy_v1'};
+    const answer = {...result(undefined, model), generation_policy: 'greedy_v1'};
+    const f = await fixture(t, (socket, message) => {
+      reply(socket, message, 'admitted'); reply(socket, message, 'result', {result: answer});
+    }, structuredClone(negotiated), {generationPolicyVersion: 1, executionErrorVersion: 1});
+    assert.deepEqual(await f.client.connect(), negotiated);
+    const returned = await f.client.submit(request);
+    assert.deepEqual(returned, answer);
+    assert.equal(Object.hasOwn(returned, 'inference_backend'), false);
+    assert.deepEqual(f.requests[0].operation, {type: 'conversation_capabilities',
+      generation_policy_version: 1, execution_error_version: 1});
+    assert.deepEqual(f.requests[1].operation.conversation, request);
+  }
+});
+
+test('partial, unknown or unnegotiated native CPU capabilities fail before submission', async t => {
+  const model = 'qwen3-4b-instruct-2507-v1';
+  const pair = {inference_backend: 'llama_cpp_bf16_v1', required_generation_policy: 'greedy_v1'};
+  const negotiated = {...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'], ...pair};
+  const invalid = [
+    {...negotiated, inference_backend: undefined},
+    {...negotiated, required_generation_policy: undefined},
+    {...negotiated, inference_backend: null},
+    {...negotiated, inference_backend: 'llama_cpp_bf16_v2'},
+    {...negotiated, required_generation_policy: null},
+    {...negotiated, required_generation_policy: 'sampled'},
+    {...negotiated, ...caps('qwen3-0.6b-v1')},
+    {...negotiated, ...caps('smollm2-360m-v1')},
+    {...negotiated, generation_policy_version: undefined},
+    {...negotiated, generation_policy_version: 2},
+    {...negotiated, generation_policies: []},
+    {...negotiated, generation_policies: ['sampled']},
+    {...negotiated, executable_path: '/untrusted/backend'},
+  ];
+  for (const advertised of invalid) {
+    const f = await fixture(t, () => assert.fail('invalid backend must not submit'), advertised,
+      {generationPolicyVersion: 1});
+    await assert.rejects(f.client.connect());
+    assert.equal(f.requests.length, 1);
+  }
+  for (const advertised of [{...caps(model), ...pair}, negotiated]) {
+    const f = await fixture(t, () => assert.fail('unnegotiated backend must not submit'), advertised);
+    await assert.rejects(f.client.connect());
+    assert.equal(f.requests.length, 1);
+  }
+});
+
 test('public/cloud/widened/unknown capabilities fail before any task', async t => {
   for (const change of [{ network_access: true }, { training: true }, { cloud_fallback: true },
     { max_prompt_tokens: 999999 }, { native_tool_template: true }, { model_profile: 'unknown' },

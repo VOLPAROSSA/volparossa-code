@@ -703,8 +703,284 @@ receipts are exported. The existing pinned Debian workspace-tool path is
 unchanged. Focused offline contracts and shell/syntax checks pass; hosted
 admission has been exercised, but actual coding completion remains unproved.
 
-For pre-merge testing, the identical manual workflow file must first exist on
-the default branch. Dispatch it on `feature/opencode-integration`, supplying
-that exact reviewed commit as `expected_code_sha`; dispatching an unprepared
-main branch cannot pass the source guard and must not install tools or launch
-a guest. There is no automatic inference run on push or pull request.
+For pre-merge testing, the manual workflow must be registered on the default
+branch. Dispatch the reviewed candidate branch and supply its exact commit as
+`expected_code_sha`; the [selected ref identifies the workflow version](https://cli.github.com/manual/gh_workflow_run).
+An unprepared branch cannot pass the source guard and must not install tools or
+launch a guest. There is no automatic inference run on push or pull request.
+
+### Explicit native CPU candidate
+
+The later original [4B trial 37228603308](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37228603308)
+on Code `714904a3ec452b8e10d8b40be6ac85107606ca3b` and core
+`6a517b576baa17e7329661ee0476d1848081d114` remains **failed**. One request
+reached the first model-forward start with 4,572 prompt tokens, then exhausted
+its execution budget without a completed forward, token, EOS, edit or test.
+The negotiated terminal error stopped blind retries. Cleanup was confirmed;
+the observations do not prove that all weights became resident or identify the
+stall's cause. Original artifact ZIP SHA-256:
+`fabcc8ba08f47f28f85614b645679654b70f83f02c85c4f8be8722c0d1d5978c`.
+
+An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
+different CPU executor for that same original 4B task. It pins core
+`36d616fb6d79a36fe7c8ee95c4ad84bd56b561ae` and llama.cpp source
+`7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
+both existing model profiles retain their previous core pins. Native selection
+is refused for the smaller profile; there is no silent backend fallback.
+
+The previous candidate core `f7e2c3b9c2abd710682a2ec51d4b5dfbc46b9d8f`
+failed [source Quality run 37235233676](https://github.com/VOLPAROSSA/volparossa/actions/runs/37235233676)
+in four full command-tree tests because two flattened Clap argument groups
+shared the name `Options`. No native inference trial was dispatched. The new
+pin gives the native options a unique group ID; targeted command-tree and
+absent/complete/incomplete flag-pair regressions pass. That fixes the reproduced
+CLI construction error, not the earlier model-forward stall. The original
+failed source run remains failure evidence; the new source still requires its
+own passing CI before any trial.
+
+That core's source checks subsequently passed. The first explicitly native
+[trial 37239050033](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37239050033)
+on Code `77fc08a88237ca8dd74d403222dd0e1548ffb46c` remains **failed** at
+`native-source-build`. The original report records an active build unit with
+result `success` and status `0`, but no completed resource observation or retained
+build-manifest binding. No model was provisioned and no coding task ran. Owned
+guest units/private files and outer QEMU/scratch cleanup passed; the recorded
+outer routes/DNS comparison was unchanged. Original artifact ZIP SHA-256:
+`ed5f8c699806fc1f4f7438ca2ffc3ded2e26a8cd7d95e445204cd9c815ac2e07`.
+
+The fixture had read cgroup resource files only after helper exit. systemd may
+[prune that empty cgroup even while keeping the unit active/exited](https://github.com/systemd/systemd/blob/v257/src/core/service.c#L1203-L1206).
+An inert reproduction gives the same missing-resource report shape. The original
+exception and substate were not retained, so this is not a uniquely established
+retrospective cause. The follow-up uses a bounded, source-bound local socket
+ready/release handshake: after joining the compiler and checking provenance,
+the helper stays alive while its parent checks the exact unit, sole remaining
+helper PID and actual cgroup counters. Only then may it exit, still requiring
+status `0` and an empty unit. The same absolute 1,800-second build deadline
+includes the handshake. Missing/mismatched/late messages, unavailable counters
+and failed exits remain failures. Closed substate, stage and exception-category
+diagnostics expose no raw logs or private paths.
+
+The original follow-up [trial37614132814](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37614132814)
+on Code `01c5c591b16ed34226341e04fe673a35a7a169de` and core `7308371b`
+now proves that source build and handshake complete: a verified library/manifest,
+successful exit and observed build peak of 1,031,565,312 bytes with zero swap/OOM.
+The trial nevertheless **failed** at `model-provision` with `native_conversion`,
+process status 1. Wheel-graph and runtime-import checks passed first; the generic
+conversion marker does not preserve the failed substage or exception. Those
+build counters are not conversion resource measurements. No inference or coding
+task was reached. All reported private-data, unit, process-group, QEMU and scratch
+cleanup checks pass, with scoped routes/DNS unchanged. Original ZIP SHA-256:
+`d4b32d66e90d4c76568b2fa989cbab5e49bbb736283868a03a81f9ae0303a254`;
+job `112768290137` log SHA-256:
+`6e561f75a15560a56f3d98c1a49e518c52ad543646ea1463c7f475e5ec2d0ce6`.
+The follow-up adds bounded conversion diagnostics without exporting raw logs,
+paths or model content; it is not a demonstrated conversion fix.
+Native-only detail distinguishes absent, invalid, unknown and reported failure;
+it cannot report success. Duplicate fields/markers, malformed values and a
+claimed child failure without a nonzero integer exit status are rejected.
+All sixty-one native, smoke and CI fixture checks pass, independently repeated
+by root. Default Torch summaries and all trial limits remain unchanged.
+
+The subsequent [trial 37623495917](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37623495917)
+on Code `61d2c0c52468eee7728cf6f32a107baca5bae240` and core
+`7739206361aa0aeb7cf0b20d9f8cf1cc9da5c81b` also **failed**. The converter
+child exited successfully, but verification reported `stage=verify` and
+`failure=contract`; no verified model or inference followed. All reported
+guest-unit, private-file, QEMU and scratch cleanup checks passed, with scoped
+routes/DNS unchanged. The separate raw host-route byte comparison was false.
+Original artifact ZIP SHA-256:
+`50ad3ba19fe9811e132f2dad7ee3c49407d5fcecc86a65a816d7a0637eab996e`;
+job `112799334236` log SHA-256:
+`24bcefeb3279b24e011008fecca2037a0808dac2af82587527c1d378759c86a3`.
+
+The new core pin corrects one source-proven verifier mismatch: the pinned
+Qwen3 converter omits `qwen3.rope.dimension_count`, and its loader uses the
+validated attention key length when that optional value is absent. Verification
+now follows the same rule while still rejecting an incorrect explicit rotary
+length or any missing required model parameter. This is a targeted correction,
+not retrospective proof of the first failed assertion or a successful conversion.
+Tensor, tokenizer, prompt and resource checks remain unchanged.
+
+After both exact-source checks passed, [trial 37631532611](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37631532611)
+on Code `8a7034d5e09cf34f8ac67742f347eb657f769440` and core
+`10fd16dc78a0c91dee627b9d8bdab2226f2cc415` **failed during the OpenCode
+task**. Source build, conversion and model provisioning now succeed, with a
+verified 8,051,283,488-byte BF16 GGUF. The worker reports
+`compute_control_ack_deadline` at `verify_files/begin`: an I/O-pressure pause
+was not acknowledged while hashing the full original weights. Source review
+found missing execution-thread checkpoints in that hash loop and subsequent
+native verification. The new core pin processes controls between unchanged
+1 MiB reads during preparation, native bundle validation and post-execution
+rehashing. All 138 targeted core worker/native checks pass, independently
+repeated, including real-file/owner-pipe pause, resume, cancel and unchanged
+deadline tests. No integrity checks, resources or deadlines were relaxed.
+A single blocking read can still exceed the control deadline; a new actual
+large-model trial is required before claiming that execution succeeds.
+
+No native model turn or tool call completed. Six requests failed within this
+single workflow, with cleanup confirmed for all six. Core peak memory was
+2,303,844,352 bytes, with zero OOM kills and swap. All reported owned-unit,
+process-group, private-data, QEMU and scratch cleanup passed; scoped host-state
+files match. No raw model output was exported. Conversion is now demonstrated,
+but inference, successful coding and protected peer execution remain unproved.
+Original artifact ZIP SHA-256:
+`78c4732774fc93dae9872df0460e2addf7f3849a6a190f803069fbc7d6a6e9c8`;
+job `112826781182` log SHA-256:
+`ef7d5c7bbeeebf497ec9a42881746a782b36f7c7bddc9febef11d7af373cb44f`.
+The consumed dispatch receipts and all earlier failures remain unchanged;
+there has been no repeat dispatch or main merge.
+
+The new owner-responsive verification [trial 37641148934](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37641148934),
+attempt 1 on Code `d48801a6` / core `773d6377`, **fails** after build, conversion
+and provisioning succeed with the same complete BF16 model. The worker now
+acknowledges all 20 issued owner controls and reaches `model_load/begin`, then
+reports `worker_other`. This closed diagnostic does not identify the precise
+native load failure. No native turn, tool call or coding task completes; six
+failed runtime requests have confirmed cleanup.
+
+Core cgroup peak is 8,106,295,296 bytes within the 11 GiB limit, with zero swap
+and OOM kills. Owned units, processes, private data, QEMU and scratch cleanup
+pass. Normalized route/DNS observations match; raw IPv6 route bytes differ in
+the excluded counter column, not a byte-identical snapshot. No raw model output
+was exported. Original artifact `11492792961` ZIP SHA-256:
+`b2621c8918f1304848fcc4a7b9e736fab2379cdf19c29de9ab11606e5c9e9cfc`;
+job `112860150266` log SHA-256:
+`4e32650af9e373e5e28ec93663777f1fe833feee419a5fe604fcfdfa6b7ec438`.
+This follow-up has its own consumed once-only receipts; no repeat was sent.
+
+The current source candidate bounds tensor validation in both upstream loading
+paths to one execution thread, while still validating every tensor on success.
+Owner controls are serviced between tensors; a single tensor remains
+non-interruptible, and cancellation rejects the whole load. Closed native
+load-stage diagnostics expose no raw model output or exception text. This
+corrects a source-proven unbounded validation launch; it does not retrospectively
+establish the cause of the preceding trial's failure.
+
+Code now requires the core's build-manifest v2, including original/effective
+loader and patch provenance, and verifies the actual compiled loader source.
+The core checkout stays unchanged. Its builder imports the exact sibling
+contract afresh, without changing the module search path or retaining a
+temporary import binding. Old v1 manifests, altered patches, mismatched compile
+sources and changed copied build reports are rejected. The native library ABI
+remains version 1; the build-manifest version is a separate contract.
+
+Focused inert checks cover the source-pinned import, provenance, tampering and
+unchanged resource profile. A separate core source-only build passes its narrow
+ABI and validation checks. Neither proved a full model load or successful coding
+task at that source-only checkpoint. The following actual trial remains failed.
+The model, original prompt, precision, deadlines and memory limits are unchanged.
+
+The subsequent [trial 37654339995](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37654339995),
+attempt 1 on Code `8b5d5b6a` / core `f4cd8bd7`, **fails** after native source
+build, conversion and provisioning complete. One submitted request returns one
+cleanup-confirmed incomplete model result (`invalid_output`), with no usable
+turn, tool call, permission request or completed command. The provider records
+`invalid_model_output` once; execution-failure, token-limit and wire-truncation
+counters remain zero. Core observes `result_observed` once and
+`conversation_native_json` twice: repeated validation of the same report, not
+two model executions. The tagged tool body failed typed JSON deserialization;
+the exact syntax/schema cause is unknown. No raw model output was exported.
+
+Core cgroup peak is 4,555,878,400 bytes within 11 GiB, with zero OOM kills and
+swap. Task-memory and graceful-core-stop fields are absent, not passing or zero
+observations. Reported owned units/process-group/private data and QEMU/scratch
+cleanup pass. Normalized route/DNS observations match; raw IPv6 route hashes
+differ, so byte-identical host state or a full firewall audit is not claimed.
+Original artifact `11499080343` ZIP SHA-256:
+`c7d3ed9150e8eb8e7d58a65ed46b0179c997a74f2191c621cf0109552278b6dd`;
+job `112905525075` decoded log SHA-256:
+`fd62b12408eee3e4bbf6c994a84a9cede4fd088806103525782cf428f1ff6610`.
+All original failed runs and consumed one-shot receipts remain unchanged.
+
+The new exact core pin is a diagnostic-only candidate. After the unchanged
+private report binding, it exports only Serde's closed `syntax`, `data`, `eof`
+or `io` category, never parser messages, field names, positions or output
+fragments. Historical generic JSON codes remain readable. This does not repair
+or accept the rejected output, establish a unique prompt/template cause, or
+prove another model execution. The wire result remains `invalid_output`; the
+single-call contract, complete prompt/model, resources and deadlines are unchanged.
+No model trial had run at this diagnostic checkpoint; the actual follow-up is
+recorded below.
+
+The exact pin includes main's independently verified public-filter snapshot
+milestone. Its only merge conflict was two adjacent implementation-status
+sections; both are retained. Native inference and diagnostics remain byte-for-byte
+identical to `bccd7f3e`. This integration required fresh exact-source CI; earlier
+CodeQL results were not substituted for an absent Quality run on the conflicted
+parent branch.
+
+The diagnostic follow-up [trial 37671030306](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37671030306),
+attempt 1 on Code `2b2687fec5376b6e49f8266dff71cc7935845e99` / core
+`36d616fb6d79a36fe7c8ee95c4ad84bd56b561ae`, **fails at the execution
+deadline**. Native source build, conversion and provisioning complete. Unlike the
+previous JSON rejection, this request ends with core `compute_deadline` and one
+provider `execution_budget_exceeded` error, with cleanup confirmed. The worker
+records 44 generated tokens and an internal generation completion at 518,788 ms;
+`verify_after/begin` follows at 519,120 ms. Its last state is paused under
+`quiet_hold`, with 31 controls issued and acknowledged, the last being pause.
+Those tokens never become a verified result delivered to the native runtime.
+
+The task ends after 603,331 ms without a completed native turn, observed tool
+call, approved read/edit/test or completed command. The fixture is unchanged and
+independent verification is not reached. Core cgroup peak is 9,466,974,208 bytes
+within 11 GiB, with zero OOM kills and swap. These observations do not measure
+total pause time or identify a unique cause of the overrun. Reported runtime,
+project, guest-unit/private-data, QEMU/scratch and owned CI-host cleanup pass.
+Normalized route/DNS observations match, but raw hashes differ; no byte-identical
+host-state or complete firewall-audit claim follows. Raw model output remains
+excluded.
+
+Original artifact `11505764017` ZIP SHA-256:
+`935e115a86abf1da83fe0e3d68ebac90d37ecbe399c7dcc79f055ff26dc33e83`;
+job `112962546447` original raw log, 68,786 bytes, SHA-256:
+`369407954fff82728d2ff41d5d0e229c78726ea8ae487bf2112964138ca492d8`.
+The original bytes are retained without decoding or newline normalization. This
+failed run does not replace or relabel any earlier result or relax model, task,
+integrity, resource or deadline checks.
+
+The next source-only pin is core
+`9e9086ee873f7162f498e8647e6f6f438273e6ce` (tree
+`ecda529c486e4f759f15d107b5e09a7710bcbfa6`). Native execution now retains the actual
+complete initial source-shard measurement rather than reading the unused
+conversion-source shards again after generation. The used GGUF is still fully
+hashed before loading and after closing the native handle. Its required internal
+`verification_scope` states this distinction; the core rejects missing, extra,
+old or different scope. This is an explicit native verification-contract change,
+not successful execution evidence. Ordinary PyTorch checks and the complete
+model, task, resource, governor and deadline settings remain unchanged.
+
+The pin includes main's filter broker and four-validator TEST milestone; the
+merge preserves both independent third-party provenance sections. A new actual
+trial requires fresh exact-source CI and preflight. No new model trial has run
+on this source correction, and the original failures above remain unchanged.
+
+Select the native backend consistently for source selection, packing and
+execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
+exposes the same explicit choice. It must be registered and dispatched against
+the exact reviewed Code commit; a source pin is not evidence of a successful run.
+
+Only the disposable guest fetches and compiles the pinned native source. The
+new source-build service has two build jobs, low priority, the existing 11 GiB
+guest-service limit, no swap and a 1,800-second ceiling; the outer VM/SSH budgets
+are unchanged. Conversion stays within the original 20 GiB/1,800-second
+provisioning budget. It adds one pinned converter dependency, verifies all
+original tensor values and authorizes the measured backend manifest explicitly.
+The original model, full prompt, greedy policy, two worker threads, 600-second
+request budget, coding task and independent tests are unchanged. This is not
+quantization, a smaller model, confidential remote execution or a new app-level
+peer scheduler.
+
+Fifty-seven targeted Python fixture checks pass; the unchanged consumer/session
+code retains its earlier forty-seven passing Node checks. These checks cover
+exact source/backend/artifact bindings, negative cases,
+unchanged defaults, measured resource limits and cleanup contracts. The actual
+build-shell selector now forwards the explicit backend choice too; an inert
+shell-prefix regression reproduces the previous mismatch before any profile,
+privileged operation or build. Source-only CI also covers stacked pull requests,
+with unchanged checks and permissions. The real trials above now demonstrate
+conversion, provisioning and one cleanup-confirmed incomplete native model result.
+Neither that result nor the latest deadline during post-generation verification
+proves a usable native turn or successful coding loop.
+The core's retained full upstream sanitizer failure on a disallowed quantized
+path also remains explicit; separate BF16/F32 checks do not erase that failure.

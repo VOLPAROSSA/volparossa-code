@@ -34,6 +34,10 @@ LARGE_MODEL = 'qwen3-4b-instruct-2507-v1'
 # Both profiles require the reviewed terminal-budget IPC; model and budgets stay distinct.
 LARGE_CORE = '6a517b576baa17e7329661ee0476d1848081d114'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
+INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
+# Native complete tensor validation is bounded and source-provenance checked.
+NATIVE_CORE = '9e9086ee873f7162f498e8647e6f6f438273e6ce'
+NATIVE_SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
 IMAGE_SHA512 = '184761b0dad0f9ace02f9298050ca96ce3caa39a461a47706d47ff9698b59933918b91b40177fbd4d392f6446af8b4d18ecb94caca988169b19641606bf34003'
@@ -43,6 +47,7 @@ SOURCE = Path('/home/vpci/source')
 PROJECTS = Path('/home/vpci/opencode-projects')
 CORE_UNIT = 'volparossa-opencode-core.service'
 TASK_UNIT = 'volparossa-opencode-task.service'
+NATIVE_UNIT = 'volparossa-opencode-native-build.service'
 
 
 def require(value, reason):
@@ -50,9 +55,15 @@ def require(value, reason):
         raise ValueError(reason)
 
 
-def trial_profile(model_profile=MODEL):
+def trial_profile(model_profile=MODEL, inference_backend='torch'):
     """Closed source/resource choices; the larger trial never changes the default."""
     require(model_profile in MODEL_PROFILES, 'unknown_model_profile')
+    require(inference_backend in INFERENCE_BACKENDS, 'unknown_inference_backend')
+    if inference_backend != 'torch':
+        require(model_profile == LARGE_MODEL, 'native_backend_requires_qwen4b')
+        require(type(NATIVE_CORE) is str and re.fullmatch('[0-9a-f]{40}', NATIVE_CORE), 'native_core_not_pinned')
+        return dict(trial_profile(model_profile), core_revision=NATIVE_CORE,
+                    inference_backend=inference_backend, native_source_commit=NATIVE_SOURCE)
     if model_profile == MODEL:
         return dict(model_profile=MODEL, core_revision=CORE, guest_memory_mib=6144,
                     core_memory_bytes=5 * GIB, qemu_memory_bytes=7 * GIB,
@@ -64,6 +75,16 @@ def trial_profile(model_profile=MODEL):
                 core_memory_bytes=11 * GIB, qemu_memory_bytes=13 * GIB,
                 host_available_bytes=14 * GIB, provision_budget_bytes=20 * GIB,
                 scratch_gib=40, memory_failure='host_available_memory_below_14GiB')
+
+
+def backend_fields(profile):
+    return {key: profile[key] for key in ('inference_backend', 'native_source_commit') if key in profile}
+
+
+def validate_backend_fields(value, profile):
+    expected = backend_fields(profile)
+    require({key: value[key] for key in ('inference_backend', 'native_source_commit') if key in value}
+            == expected, 'input_backend')
 
 
 def digest(path, algorithm='sha256'):
@@ -89,7 +110,48 @@ def load(path, maximum=2 * 1024**2):
     return json.loads(path.read_bytes())
 
 
-def closed_provision(path, pins, stage, returncode, wait_timeout=False):
+def closed_conversion(lines, log_state, process_status):
+    """A diagnostic can report failure, never establish successful conversion."""
+    value = dict(state='absent', stage='unknown', failure='unknown', child_exit_status=None)
+    if log_state != 'present':
+        value['state'] = 'absent' if log_state == 'absent' else 'invalid'
+        return value
+    prefix = b'NATIVE_CONVERSION_DIAGNOSTIC '
+    rows = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not rows:
+        return value
+    value['state'] = 'invalid'
+    if len(rows) != 1 or len(rows[0]) > 1024 or lines.count(b'NATIVE_CONVERSION_FAILED') != 1 \
+            or type(process_status) is not int or not -128 <= process_status <= 255 or process_status == 0:
+        return value
+    def unique(pairs):
+        result = {}
+        for key, item in pairs:
+            require(key not in result, 'duplicate_conversion_field')
+            result[key] = item
+        return result
+    try:
+        row = json.loads(rows[0], object_pairs_hook=unique)
+        stages = {'guard', 'source', 'runtime', 'model', 'build', 'budget', 'convert', 'tokenizer',
+                  'verify', 'recheck', 'bundle', 'manifest', 'permissions', 'unknown'}
+        failures = {'cancelled', 'timeout', 'missing_file', 'permission', 'memory', 'import', 'subprocess',
+                    'os_error', 'invalid_shape', 'child_failed', 'disk_budget', 'contract', 'unknown'}
+        require(type(row) is dict and set(row) == {'version', 'kind', 'stage', 'failure', 'child_exit_status'}
+                and type(row['version']) is int and row['version'] == 1
+                and row['kind'] == 'native-conversion-failure'
+                and type(row['stage']) is str and row['stage'] in stages
+                and type(row['failure']) is str and row['failure'] in failures
+                and (row['child_exit_status'] is None or (type(row['child_exit_status']) is int
+                     and -128 <= row['child_exit_status'] <= 255)), 'conversion_diagnostic_shape')
+        require(row['failure'] != 'child_failed' or (type(row['child_exit_status']) is int
+                and row['child_exit_status'] != 0), 'conversion_child_status')
+        return dict(state='unknown' if 'unknown' in (row['stage'], row['failure']) else 'reported_failure',
+                    **{key: row[key] for key in ('stage', 'failure', 'child_exit_status')})
+    except (ValueError, TypeError, KeyError, UnicodeError):
+        return value
+
+
+def closed_provision(path, pins, stage, returncode, wait_timeout=False, native_cpu=False):
     """Bounded metadata only; progress means download starts, not verified assets."""
     stages = {'pins', 'launch', 'process', 'report', 'provenance', 'complete'}
     value = dict(version=1, stage=stage if stage in stages else 'unknown',
@@ -97,6 +159,8 @@ def closed_provision(path, pins, stage, returncode, wait_timeout=False):
         wait_timeout=wait_timeout is True, log_state='absent', progress_state='no_signal',
         download_starts=0, last_artifact_index=None, failure_class='unknown', http_status=None,
         wheel_graph_checked=False, runtime_import_checked=False)
+    native_conversion_failed = False
+    lines = []
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(descriptor, 'rb') as stream:
@@ -127,6 +191,7 @@ def closed_provision(path, pins, stage, returncode, wait_timeout=False):
                 value.update(progress_state='ordered', download_starts=index + 1, last_artifact_index=index)
             if value['log_state'] != 'present':
                 continue
+            native_conversion_failed |= native_cpu is True and line == b'NATIVE_CONVERSION_FAILED'
             value['wheel_graph_checked'] |= line == b'PINNED_WHEEL_GRAPH_OK'
             value['runtime_import_checked'] |= line == b'OFFLINE_CPU_RUNTIME_IMPORT_OK'
             prefix = b'Provisioning refused: '
@@ -165,6 +230,10 @@ def closed_provision(path, pins, stage, returncode, wait_timeout=False):
         pass
     except (OSError, ValueError, KeyError, TypeError):
         value['log_state'] = 'invalid'
+    if native_conversion_failed and value['log_state'] == 'present':
+        value['failure_class'] = 'native_conversion'
+    if native_cpu is True:
+        value['native_conversion'] = closed_conversion(lines, value['log_state'], value['process_status'])
     return value
 
 
@@ -187,7 +256,7 @@ def new_output(path):
 
 
 def pack(args):
-    profile = trial_profile(getattr(args, 'model_profile', MODEL))
+    profile = trial_profile(getattr(args, 'model_profile', MODEL), getattr(args, 'inference_backend', 'torch'))
     new_output(args.output)
     canonical(args.core)
     require(run(['git', '-C', args.core, 'rev-parse', 'HEAD'], text=True).stdout.strip()
@@ -204,6 +273,7 @@ def pack(args):
     files = {f'code/{path.relative_to(ROOT)}': path for path in sorted((ROOT / 'src').glob('*.cjs'))}
     names = ['src/opencode-cooperative-tool.js', 'scripts/opencode_session.py', 'scripts/opencode_session.cjs',
              'scripts/smoke_opencode_inference.cjs', 'scripts/smoke_opencode_inference.py',
+             'scripts/opencode_native_cpu.py',
              'third_party/opencode.json', 'third_party/opencode-LICENSE.txt',
              'third_party/opencode-build-tools.json', 'patches/opencode-no-runtime-installs.patch',
              'LICENSE', 'THIRD_PARTY_LICENSES.md']
@@ -228,6 +298,7 @@ def pack(args):
             code_contains_uncommitted_changes=True, code_git_head_proves_migration=False,
             node_version='24.19.0', model_profile=profile['model_profile'], opencode_revision=report['source_commit'],
             opencode_binary_sha256=report['binary_sha256'], files=inventory)
+        manifest.update(backend_fields(profile))
         encoded = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
         with tarfile.open(args.output, 'x:gz', compresslevel=1) as target:
             for name, source in files.items():
@@ -247,9 +318,10 @@ def pack(args):
                       'code_contains_uncommitted_changes': True}))
 
 
-def staged_inputs(model_profile=MODEL):
-    profile = trial_profile(model_profile)
+def staged_inputs(model_profile=MODEL, inference_backend='torch'):
+    profile = trial_profile(model_profile, inference_backend)
     manifest = load(INPUT / 'INPUTS.json')
+    validate_backend_fields(manifest, profile)
     require(manifest['core_revision'] == profile['core_revision'] and manifest['model_profile'] == model_profile
             and manifest['code_contains_uncommitted_changes'] is True
             and manifest['code_git_head_proves_migration'] is False, 'input_authority')
@@ -265,7 +337,7 @@ def staged_inputs(model_profile=MODEL):
 
 
 def unit(name, *args, check=True):
-    require(name in (CORE_UNIT, TASK_UNIT), 'unit_scope')
+    require(name in (CORE_UNIT, TASK_UNIT, NATIVE_UNIT), 'unit_scope')
     return subprocess.run(['sudo', '-n', 'systemctl', *args, name], capture_output=True,
                           text=True, timeout=20, check=check)
 
@@ -277,7 +349,7 @@ def properties(name):
 
 
 def cgroup(name):
-    require(name in (CORE_UNIT, TASK_UNIT), 'cgroup_scope')
+    require(name in (CORE_UNIT, TASK_UNIT, NATIVE_UNIT), 'cgroup_scope')
     return Path('/sys/fs/cgroup/system.slice') / name
 
 
@@ -294,28 +366,160 @@ def memory(name):
         'oom_kill': int(events['oom_kill'])}
 
 
-def start(name, command, limit, seconds):
+def closed_native_unit(state):
+    code = state.get('ExecMainStatus', '')
+    return dict(active=state.get('ActiveState') if state.get('ActiveState') in
+                ('active', 'inactive', 'failed', 'activating', 'deactivating') else 'unknown',
+                substate=state.get('SubState') if state.get('SubState') in
+                ('running', 'exited', 'failed', 'dead', 'start', 'stop', 'stop-sigterm', 'stop-sigkill') else 'unknown',
+                result=state.get('Result') if state.get('Result') in
+                ('success', 'exit-code', 'signal', 'core-dump', 'oom-kill', 'timeout', 'resources') else 'unknown',
+                status=int(code) if re.fullmatch('[0-9]{1,3}', code) and int(code) <= 255 else None)
+
+
+def closed_native_exception(error):
+    if isinstance(error, FileNotFoundError):
+        return 'missing_file'
+    if isinstance(error, PermissionError):
+        return 'permission'
+    if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)):
+        return 'timeout'
+    if isinstance(error, OSError):
+        return 'os_error'
+    if isinstance(error, subprocess.SubprocessError):
+        return 'subprocess_error'
+    if isinstance(error, ValueError):
+        return 'deadline' if str(error) == 'native_deadline' else 'contract'
+    return 'invalid_shape'
+
+
+def native_memory(limit):
+    value = memory(NATIVE_UNIT)
+    group = cgroup(NATIVE_UNIT)
+    events = dict(row.split() for row in (group / 'memory.events').read_text().splitlines())
+    value.update(swap_current=int((group / 'memory.swap.current').read_text()), oom=int(events['oom']))
+    require(value['maximum'] == limit and 0 < value['peak'] <= limit
+            and value['swap'] == value['swap_current'] == value['oom'] == value['oom_kill'] == 0,
+            'native_build_resource_violation')
+    return value
+
+
+def native_helper_state(report):
+    state = properties(NATIVE_UNIT)
+    report['native_build_unit'] = closed_native_unit(state)
+    return state
+
+
+def native_helper_live(state, expected_pid=None):
+    raw = state.get('MainPID', '')
+    require(state.get('ActiveState') == 'active' and state.get('SubState') == 'running'
+            and re.fullmatch('[0-9]{1,10}', raw) and 1 < int(raw) < 2 ** 31,
+            'native_helper_not_running')
+    pid = int(raw)
+    require(expected_pid is None or pid == expected_pid, 'native_helper_changed')
+    group = cgroup(NATIVE_UNIT)
+    require(group.is_dir(), 'native_cgroup_missing')
+    files = []
+    for path in group.rglob('cgroup.procs'):
+        require(len(files) < 16, 'native_cgroup_shape')
+        files.append(path)
+    require(files and group / 'cgroup.procs' in files, 'native_cgroup_shape')
+    processes = []
+    for path in files:
+        with path.open('rb') as stream:
+            raw = stream.read(4097)
+        require(len(raw) <= 4096 and all(re.fullmatch(rb'[0-9]{1,10}', row) for row in raw.splitlines()),
+                'native_cgroup_shape')
+        processes.extend(int(row) for row in raw.splitlines())
+    require(processes == [pid], 'native_build_descendants')
+    return pid
+
+
+def native_build_handshake(native, listener, nonce, deadline, limit, report):
+    report['native_build_stage'] = 'ready'
+    while True:
+        listener.settimeout(min(.2, native.remaining(deadline)))
+        try:
+            channel, _ = listener.accept()
+            break
+        except TimeoutError:
+            state = native_helper_state(report)
+            require(state.get('ActiveState') == 'active' and state.get('SubState') == 'running',
+                    'native_build_ended_before_ready')
+    with channel:
+        helper_pid = native_helper_live(native_helper_state(report))
+        native.peer(channel, helper_pid)
+        raw = native.receive_frame(channel, deadline)
+        report['native_build_stage'] = 'provenance'
+        build = native.validate_build(SOURCE, BASE)
+        require(raw == native.binding('ready', nonce, build['build_manifest_sha256']), 'native_handshake_binding')
+        native.remaining(deadline)
+        report['native_build_stage'] = 'resources'
+        native_helper_live(native_helper_state(report), helper_pid)
+        measured = native_memory(limit)
+        native_helper_live(native_helper_state(report), helper_pid)
+        report['native_build_memory'] = measured
+        report['native_build_stage'] = 'release'
+        native.send_frame(channel, native.binding('release', nonce, build['build_manifest_sha256']), deadline)
+    report['native_build_stage'] = 'exit'
+    while True:
+        native.remaining(deadline)
+        state = native_helper_state(report)
+        if state.get('SubState') == 'exited' or state.get('ActiveState') in ('failed', 'inactive'):
+            break
+        time.sleep(min(.1, native.remaining(deadline)))
+    require(state.get('SubState') == 'exited' and state.get('Result') == 'success'
+            and state.get('ExecMainStatus') == '0' and empty(NATIVE_UNIT), 'native_build_failed')
+    native.remaining(deadline)
+    report['native_build_stage'] = 'complete'
+    return build
+
+
+def run_native_build(limit, report):
+    native = module(INPUT / 'code/scripts/opencode_native_cpu.py', 'opencode_native_inputs')
+    nonce, deadline = os.urandom(32).hex(), time.monotonic_ns() + 1800 * 1_000_000_000
+    path = BASE / native.CONTROL
+    report['native_build_stage'] = 'launch'
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(path))  # Existing socket/path is a failure, never replaced.
+            path.chmod(0o600)
+            listener.listen(1)
+            start(NATIVE_UNIT, [sys.executable, '-B', str(INPUT / 'code/scripts/opencode_native_cpu.py'),
+                  '--execute', '--deadline-monotonic-ns', str(deadline), '--handshake-nonce', nonce,
+                  '--parent-pid', str(os.getpid())], limit, 1800, public_source_build=True)
+            return native_build_handshake(native, listener, nonce, deadline, limit, report)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        report['native_build_exception'] = closed_native_exception(error)
+        raise
+    # The private socket remains inside BASE until the existing joined cleanup;
+    # no temporary handshake path can escape or weaken the all-units-empty gate.
+
+
+def start(name, command, limit, seconds, public_source_build=False):
+    require(not public_source_build or name == NATIVE_UNIT, 'native_build_network_scope')
     (BASE / (name + '.log')).touch(mode=0o600)
     run(['sudo', '-n', 'systemd-run', '--quiet', '--unit=' + name, '--property=Type=exec',
          '--property=RemainAfterExit=yes', '--property=User=vpci', '--property=Group=vpci',
          '--property=WorkingDirectory=/home/vpci/source', '--property=MemoryMax=' + str(limit),
          '--property=MemorySwapMax=0', '--property=TasksMax=256', '--property=KillMode=control-group',
          '--property=RuntimeMaxSec=' + str(seconds), '--property=TimeoutStopSec=15',
-         '--property=NoNewPrivileges=yes', '--property=PrivateNetwork=yes',
+         '--property=NoNewPrivileges=yes', '--property=PrivateNetwork=' + ('no' if public_source_build else 'yes'),
          '--property=StandardOutput=append:' + str(BASE / (name + '.log')),
          '--property=StandardError=append:' + str(BASE / (name + '.log')),
          '--setenv=RUST_LOG=off,volparossa::compute::private_diagnostic=debug', '--setenv=NO_COLOR=1', *command])
 
 
 def guest(args):
-    profile = trial_profile(getattr(args, 'model_profile', MODEL))
+    backend = getattr(args, 'inference_backend', 'torch')
+    profile = trial_profile(getattr(args, 'model_profile', MODEL), backend)
     os.umask(0o077)
     require(os.getuid() > 0 and pwd.getpwuid(os.getuid()).pw_name == 'vpci'
             and socket.gethostname() == 'volparossa-alpha'
             and run(['systemd-detect-virt', '--vm'], text=True).stdout.strip() == 'kvm'
             and 'VERSION_ID="13"' in Path('/etc/os-release').read_text(), 'disposable_guest_required')
     require(not BASE.exists() and not PROJECTS.exists() and not SOURCE.exists(), 'fresh_guest')
-    manifest = staged_inputs(profile['model_profile'])
+    manifest = staged_inputs(profile['model_profile'], backend)
     output = Path('/home/vpci/opencode-result.json')
     require(not output.exists(), 'fresh_receipt')
     BASE.mkdir(mode=0o700)
@@ -333,6 +537,7 @@ def guest(args):
         code_contains_uncommitted_changes=True, model_profile=profile['model_profile'], actual_model_provisioned=False,
         private_peer_execution_proven=False, confidential_remote_execution_proven=False,
         raw_model_output_exported=False, host_state_unchanged=None, units_empty=False, private_data_removed=False)
+    report.update(backend_fields(profile))
     try:
         for name in (CORE_UNIT, TASK_UNIT):
             require(properties(name).get('LoadState') == 'not-found', 'existing_unit')
@@ -350,15 +555,23 @@ def guest(args):
             subprocess.run(['/usr/bin/cargo', 'build', '--locked', '-p', 'volparossa', '--bin', 'volparossa'],
                            cwd=SOURCE, env=build_env, stdout=log, stderr=log, timeout=1200, check=True)
         report['core_binary_sha256'] = digest(private.CLI)
+        if backend != 'torch':
+            report['phase'] = 'native-source-build'
+            require(properties(NATIVE_UNIT).get('LoadState') == 'not-found', 'existing_unit')
+            created.append(NATIVE_UNIT)
+            report['native_build'] = run_native_build(profile['core_memory_bytes'], report)
         report['phase'] = 'model-provision'
         provision_stage = 'pins'
         model = module(private.ML / 'provision.py', 'opencode_model_provision')
-        provision_pins = model.load_pins(profile['model_profile'])
+        provision_pins = (model.load_pins(profile['model_profile'], native_cpu_converter=True)
+                          if backend != 'torch' else model.load_pins(profile['model_profile']))
         provision_stage = 'launch'
         with (BASE / 'provision.log').open('xb') as log:
             provision = subprocess.Popen([sys.executable, '-B', str(private.ML / 'provision.py'),
                 '--execute', '--yes', '--disposable-guest', '--model-profile', profile['model_profile'],
-                '--root', str(BASE / 'ml'), '--budget-bytes', str(profile['provision_budget_bytes'])],
+                '--root', str(BASE / 'ml'), '--budget-bytes', str(profile['provision_budget_bytes']),
+                *(['--native-cpu-source', str(BASE / 'llama-source'), '--native-cpu-build', str(BASE / 'llama-build')]
+                  if backend != 'torch' else [])],
                 stdout=log, stderr=log, start_new_session=True, env=ENV)
             provision_stage = 'process'
             try:
@@ -378,6 +591,9 @@ def guest(args):
                 and observed['runtime_autofetch_enabled'] is False
                 and {key: observed[key] for key in expected} == expected, 'model_provenance')
         report['actual_model_provisioned'], report['model_provision'] = True, expected
+        if backend != 'torch':
+            native = module(INPUT / 'code/scripts/opencode_native_cpu.py', 'opencode_native_provision')
+            report['native_backend'] = native.validate_provision(SOURCE, BASE, observed, report['native_build'])
         provision_stage = 'complete'
         report['phase'] = 'core-start'
         (BASE / 'work').mkdir(mode=0o700)
@@ -385,7 +601,9 @@ def guest(args):
         start(CORE_UNIT, [str(private.CLI), 'compute', 'private-serve', '--socket', str(BASE / 'private.sock'),
             '--work-parent', str(BASE / 'work'), '--runtime-root', str(BASE / 'ml/venv'),
             '--model-root', str(BASE / 'ml/model'), '--model-profile', profile['model_profile'],
-            '--threads', '2', '--max-seconds', '600', '--execute'], profile['core_memory_bytes'], 2700)
+            '--threads', '2', '--max-seconds', '600', '--execute',
+            *(['--native-backend-root', str(BASE / 'ml/native-backend'), '--native-backend-sha256',
+               report['native_backend']['manifest_sha256']] if backend != 'torch' else [])], profile['core_memory_bytes'], 2700)
         deadline = time.monotonic() + 15
         while not (BASE / 'private.sock').exists() and time.monotonic() < deadline:
             time.sleep(.1)
@@ -416,7 +634,7 @@ def guest(args):
         report['core_diagnostics'] = private.service_diagnostic(BASE / (CORE_UNIT + '.log'))
         require(report['task_exit_status'] == 0 and report.get('task', {}).get('passed') is True, 'task_failed')
         require(empty(TASK_UNIT) and not list((BASE / 'work').iterdir()), 'task_private_cleanup')
-        require(staged_inputs(profile['model_profile']) == manifest, 'staged_inputs_changed')
+        require(staged_inputs(profile['model_profile'], backend) == manifest, 'staged_inputs_changed')
         report['inputs_unchanged'] = True
         report['phase'] = 'core-stop'
         unit(CORE_UNIT, 'kill', '--kill-whom=main', '--signal=SIGINT')
@@ -436,13 +654,16 @@ def guest(args):
         report['provision_group_joined'] = private.stop_client(provision)
         if provision_stage is not None:
             report['model_provision_diagnostic'] = closed_provision(BASE / 'provision.log', provision_pins,
-                provision_stage, provision.returncode if provision is not None else None, provision_wait_timeout)
+                provision_stage, provision.returncode if provision is not None else None, provision_wait_timeout,
+                native_cpu=backend != 'torch')
         # The original worker monitor owns descendants; stopping the complete
         # cgroup joins nested native/model processes, not just their leaders.
         for name in reversed(created):
             if cgroup(name).exists():
                 try:
-                    report['core_memory' if name == CORE_UNIT else 'task_memory'] = memory(name)
+                    report['core_memory' if name == CORE_UNIT else
+                           'native_build_memory' if name == NATIVE_UNIT else 'task_memory'] = (
+                               native_memory(profile['core_memory_bytes']) if name == NATIVE_UNIT else memory(name))
                 except (OSError, ValueError, KeyError):
                     report['failure'] = 'resource_observation_failed'
             unit(name, 'stop', check=False)
@@ -560,8 +781,8 @@ def boot_running(state):
         and int(state['MainPID']) > 0
 
 
-def qemu_command(tools, scratch, firmware=None, model_profile=MODEL):
-    profile = trial_profile(model_profile)
+def qemu_command(tools, scratch, firmware=None, model_profile=MODEL, inference_backend='torch'):
+    profile = trial_profile(model_profile, inference_backend)
     firmware = firmware or tools / 'root/usr/share/seabios/vgabios-stdvga.bin'
     return [tools / 'bin/qemu-system-x86_64', '-name', 'volparossa-opencode-inference', '-no-user-config', '-nodefaults',
         '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', str(profile['guest_memory_mib']),
@@ -574,8 +795,8 @@ def qemu_command(tools, scratch, firmware=None, model_profile=MODEL):
         '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
 
 
-def validate_bundle(path, model_profile=MODEL):
-    profile = trial_profile(model_profile)
+def validate_bundle(path, model_profile=MODEL, inference_backend='torch'):
+    profile = trial_profile(model_profile, inference_backend)
     canonical(path)
     require(path.stat().st_size < 512 * 1024**2, 'bundle_bound')
     with tarfile.open(path) as archive:
@@ -589,6 +810,7 @@ def validate_bundle(path, model_profile=MODEL):
         manifest_entry = archive.getmember('INPUTS.json')
         require(manifest_entry.size <= 2 * 1024**2, 'manifest_bound')
         manifest = json.load(archive.extractfile(manifest_entry))
+        validate_backend_fields(manifest, profile)
         require(manifest['core_revision'] == profile['core_revision'] and manifest['model_profile'] == model_profile
                 and manifest['code_contains_uncommitted_changes'] is True
                 and manifest['code_git_head_proves_migration'] is False
@@ -603,7 +825,8 @@ def validate_bundle(path, model_profile=MODEL):
 
 
 def execute(args):
-    profile = trial_profile(getattr(args, 'model_profile', MODEL))
+    backend = getattr(args, 'inference_backend', 'torch')
+    profile = trial_profile(getattr(args, 'model_profile', MODEL), backend)
     os.umask(0o077)
     require(args.yes and os.getuid() > 0, 'explicit_unprivileged_execution')
     new_output(args.output)
@@ -624,7 +847,7 @@ def execute(args):
         run([sys.executable, '-B', args.core / 'tests/integration/browser-native-tools.py',
              '--verify', '--output', canonical(args.tools)])
         host_tools = None
-    manifest = validate_bundle(args.bundle, profile['model_profile'])
+    manifest = validate_bundle(args.bundle, profile['model_profile'], backend)
     # The host executes only this reviewed runner; guest code remains in KVM.
     require(manifest['files']['code/scripts/smoke_opencode_inference.py']['sha256'] == digest(Path(__file__)),
             'runner_differs_from_captured_input')
@@ -655,6 +878,7 @@ def execute(args):
         host_raw_route_dns_bytes_unchanged=None, host_observation_scope='proc_visible_routes_and_resolv_conf',
         host_firewall_modified=False, actual_model_execution_proven=False,
         confidential_remote_execution_proven=False)
+    receipt.update(backend_fields(profile))
     if host_tools is not None:
         receipt['host_tools_profile'] = tools_profile
         receipt['host_tools_sha256'] = hashlib.sha256(json.dumps(host_tools, sort_keys=True).encode()).hexdigest()
@@ -709,7 +933,7 @@ def execute(args):
         receipt['host_available_bytes_at_launch'] = available
         qemu = qemu_command(args.tools, scratch,
                             Path('/usr/share/seabios/vgabios-stdvga.bin') if host_tools is not None else None,
-                            profile['model_profile'])
+                            profile['model_profile'], backend)
         run(['systemd-run', '--user', '--quiet', '--unit=' + name, '--property=Type=exec',
             '--property=RemainAfterExit=yes',
             '--property=MemoryMax=' + str(profile['qemu_memory_bytes']), '--property=MemorySwapMax=0',
@@ -749,10 +973,14 @@ def execute(args):
         receipt['phase'] = 'guest-inference'
         print(json.dumps({'phase': receipt['phase'], 'model_profile': profile['model_profile']}), flush=True)
         executed = ssh('python3', '-B', str(INPUT / 'code/scripts/smoke_opencode_inference.py'),
-                       'guest', '--model-profile', profile['model_profile'], timeout=6600, check=False)
+                       'guest', '--model-profile', profile['model_profile'],
+                       '--inference-backend', backend, timeout=6600, check=False)
         receipt['guest_exit_status'] = executed.returncode
         scp('vpci@127.0.0.1:/home/vpci/opencode-result.json', args.output / 'guest-result.json')
         result = load(args.output / 'guest-result.json', 65536)
+        validate_backend_fields(result, profile)
+        require(result.get('core_revision') == profile['core_revision']
+                and result.get('model_profile') == profile['model_profile'], 'guest_source_profile')
         receipt['actual_model_execution_proven'] = bool(result.get('passed') and result.get('actual_model_provisioned'))
         require(executed.returncode == 0 and result.get('passed') is True, 'guest_trial_failed')
         receipt['phase'], status = 'complete', 0
@@ -816,6 +1044,7 @@ def main():
         execution.add_argument('--' + name, type=Path, required=True)
     for subparser in (packing, guest_parser, execution):
         subparser.add_argument('--model-profile', choices=MODEL_PROFILES, default=MODEL)
+        subparser.add_argument('--inference-backend', choices=INFERENCE_BACKENDS, default='torch')
     args = parser.parse_args()
     if args.mode == 'pack':
         pack(args)
