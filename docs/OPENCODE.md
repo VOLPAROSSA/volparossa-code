@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`f4cd8bd7ca310794dfc73cfcd096d6baedcf73bf` and llama.cpp source
+`bccd7f3ee613f4132a506e32b1f098806d81ec44` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
@@ -867,9 +867,40 @@ remains version 1; the build-manifest version is a separate contract.
 
 Focused inert checks cover the source-pinned import, provenance, tampering and
 unchanged resource profile. A separate core source-only build passes its narrow
-ABI and validation checks. Neither proves a full model load or successful coding
-task on this candidate; a new separately authorized isolated trial is required.
+ABI and validation checks. Neither proved a full model load or successful coding
+task at that source-only checkpoint. The following actual trial remains failed.
 The model, original prompt, precision, deadlines and memory limits are unchanged.
+
+The subsequent [trial 37654339995](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37654339995),
+attempt 1 on Code `8b5d5b6a` / core `f4cd8bd7`, **fails** after native source
+build, conversion and provisioning complete. One submitted request returns one
+cleanup-confirmed incomplete model result (`invalid_output`), with no usable
+turn, tool call, permission request or completed command. The provider records
+`invalid_model_output` once; execution-failure, token-limit and wire-truncation
+counters remain zero. Core observes `result_observed` once and
+`conversation_native_json` twice: repeated validation of the same report, not
+two model executions. The tagged tool body failed typed JSON deserialization;
+the exact syntax/schema cause is unknown. No raw model output was exported.
+
+Core cgroup peak is 4,555,878,400 bytes within 11 GiB, with zero OOM kills and
+swap. Task-memory and graceful-core-stop fields are absent, not passing or zero
+observations. Reported owned units/process-group/private data and QEMU/scratch
+cleanup pass. Normalized route/DNS observations match; raw IPv6 route hashes
+differ, so byte-identical host state or a full firewall audit is not claimed.
+Original artifact `11499080343` ZIP SHA-256:
+`c7d3ed9150e8eb8e7d58a65ed46b0179c997a74f2191c621cf0109552278b6dd`;
+job `112905525075` decoded log SHA-256:
+`fd62b12408eee3e4bbf6c994a84a9cede4fd088806103525782cf428f1ff6610`.
+All original failed runs and consumed one-shot receipts remain unchanged.
+
+The new exact core pin is a diagnostic-only candidate. After the unchanged
+private report binding, it exports only Serde's closed `syntax`, `data`, `eof`
+or `io` category, never parser messages, field names, positions or output
+fragments. Historical generic JSON codes remain readable. This does not repair
+or accept the rejected output, establish a unique prompt/template cause, or
+prove another model execution. The wire result remains `invalid_output`; the
+single-call contract, complete prompt/model, resources and deadlines are unchanged.
+No model trial has run on this diagnostic follow-up.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
@@ -894,8 +925,9 @@ unchanged defaults, measured resource limits and cleanup contracts. The actual
 build-shell selector now forwards the explicit backend choice too; an inert
 shell-prefix regression reproduces the previous mismatch before any profile,
 privileged operation or build. Source-only CI also covers stacked pull requests,
-with unchanged checks and permissions. No actual
-native model inference or successful coding loop has yet been proved. Conversion
-and provisioning are demonstrated by the separate real trials above.
+with unchanged checks and permissions. The real trials above now demonstrate
+conversion, provisioning and one cleanup-confirmed incomplete native model result,
+but no usable native turn or successful coding loop. The newer diagnostics remain
+source-only evidence.
 The core's retained full upstream sanitizer failure on a disallowed quantized
 path also remains explicit; separate BF16/F32 checks do not erase that failure.
