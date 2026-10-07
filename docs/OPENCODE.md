@@ -900,14 +900,60 @@ fragments. Historical generic JSON codes remain readable. This does not repair
 or accept the rejected output, establish a unique prompt/template cause, or
 prove another model execution. The wire result remains `invalid_output`; the
 single-call contract, complete prompt/model, resources and deadlines are unchanged.
-No model trial has run on this diagnostic follow-up.
+No model trial had run at this diagnostic checkpoint; the actual follow-up is
+recorded below.
 
 The exact pin includes main's independently verified public-filter snapshot
 milestone. Its only merge conflict was two adjacent implementation-status
 sections; both are retained. Native inference and diagnostics remain byte-for-byte
-identical to `bccd7f3e`. This integration needs fresh exact-source CI; earlier
-CodeQL results are not substituted for an absent Quality run on the conflicted
+identical to `bccd7f3e`. This integration required fresh exact-source CI; earlier
+CodeQL results were not substituted for an absent Quality run on the conflicted
 parent branch.
+
+The diagnostic follow-up [trial 37671030306](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37671030306),
+attempt 1 on Code `2b2687fec5376b6e49f8266dff71cc7935845e99` / core
+`36d616fb6d79a36fe7c8ee95c4ad84bd56b561ae`, **fails at the execution
+deadline**. Native source build, conversion and provisioning complete. Unlike the
+previous JSON rejection, this request ends with core `compute_deadline` and one
+provider `execution_budget_exceeded` error, with cleanup confirmed. The worker
+records 44 generated tokens and an internal generation completion at 518,788 ms;
+`verify_after/begin` follows at 519,120 ms. Its last state is paused under
+`quiet_hold`, with 31 controls issued and acknowledged, the last being pause.
+Those tokens never become a verified result delivered to the native runtime.
+
+The task ends after 603,331 ms without a completed native turn, observed tool
+call, approved read/edit/test or completed command. The fixture is unchanged and
+independent verification is not reached. Core cgroup peak is 9,466,974,208 bytes
+within 11 GiB, with zero OOM kills and swap. These observations do not measure
+total pause time or identify a unique cause of the overrun. Reported runtime,
+project, guest-unit/private-data, QEMU/scratch and owned CI-host cleanup pass.
+Normalized route/DNS observations match, but raw hashes differ; no byte-identical
+host-state or complete firewall-audit claim follows. Raw model output remains
+excluded.
+
+Original artifact `11505764017` ZIP SHA-256:
+`935e115a86abf1da83fe0e3d68ebac90d37ecbe399c7dcc79f055ff26dc33e83`;
+job `112962546447` original raw log, 68,786 bytes, SHA-256:
+`369407954fff82728d2ff41d5d0e229c78726ea8ae487bf2112964138ca492d8`.
+The original bytes are retained without decoding or newline normalization. This
+failed run does not replace or relabel any earlier result or relax model, task,
+integrity, resource or deadline checks.
+
+The next source-only pin is core
+`9e9086ee873f7162f498e8647e6f6f438273e6ce` (tree
+`ecda529c486e4f759f15d107b5e09a7710bcbfa6`). Native execution now retains the actual
+complete initial source-shard measurement rather than reading the unused
+conversion-source shards again after generation. The used GGUF is still fully
+hashed before loading and after closing the native handle. Its required internal
+`verification_scope` states this distinction; the core rejects missing, extra,
+old or different scope. This is an explicit native verification-contract change,
+not successful execution evidence. Ordinary PyTorch checks and the complete
+model, task, resource, governor and deadline settings remain unchanged.
+
+The pin includes main's filter broker and four-validator TEST milestone; the
+merge preserves both independent third-party provenance sections. A new actual
+trial requires fresh exact-source CI and preflight. No new model trial has run
+on this source correction, and the original failures above remain unchanged.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
@@ -933,8 +979,8 @@ build-shell selector now forwards the explicit backend choice too; an inert
 shell-prefix regression reproduces the previous mismatch before any profile,
 privileged operation or build. Source-only CI also covers stacked pull requests,
 with unchanged checks and permissions. The real trials above now demonstrate
-conversion, provisioning and one cleanup-confirmed incomplete native model result,
-but no usable native turn or successful coding loop. The newer diagnostics remain
-source-only evidence.
+conversion, provisioning and one cleanup-confirmed incomplete native model result.
+Neither that result nor the latest deadline during post-generation verification
+proves a usable native turn or successful coding loop.
 The core's retained full upstream sanitizer failure on a disallowed quantized
 path also remains explicit; separate BF16/F32 checks do not erase that failure.

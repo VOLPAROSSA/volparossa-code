@@ -36,7 +36,7 @@ LARGE_CORE = '6a517b576baa17e7329661ee0476d1848081d114'
 MODEL_PROFILES = (MODEL, LARGE_MODEL)
 INFERENCE_BACKENDS = ('torch', 'llama_cpp_bf16_v1')
 # Native complete tensor validation is bounded and source-provenance checked.
-NATIVE_CORE = '36d616fb6d79a36fe7c8ee95c4ad84bd56b561ae'
+NATIVE_CORE = '9e9086ee873f7162f498e8647e6f6f438273e6ce'
 NATIVE_SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
 IMAGE_NAME = 'debian-13-genericcloud-amd64-20260826-2582.qcow2'
