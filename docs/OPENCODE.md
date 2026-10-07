@@ -723,7 +723,7 @@ stall's cause. Original artifact ZIP SHA-256:
 
 An explicitly selected `--inference-backend llama_cpp_bf16_v1` now prepares a
 different CPU executor for that same original 4B task. It pins core
-`7739206361aa0aeb7cf0b20d9f8cf1cc9da5c81b` and llama.cpp source
+`10fd16dc78a0c91dee627b9d8bdab2226f2cc415` and llama.cpp source
 `7fe450e19305b828c199d602c23a8337aaa1f03b`. The default `torch` backend and
 both existing model profiles retain their previous core pins. Native selection
 is refused for the smaller profile; there is no silent backend fallback.
@@ -781,6 +781,27 @@ it cannot report success. Duplicate fields/markers, malformed values and a
 claimed child failure without a nonzero integer exit status are rejected.
 All sixty-one native, smoke and CI fixture checks pass, independently repeated
 by root. Default Torch summaries and all trial limits remain unchanged.
+
+The subsequent [trial 37623495917](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37623495917)
+on Code `61d2c0c52468eee7728cf6f32a107baca5bae240` and core
+`7739206361aa0aeb7cf0b20d9f8cf1cc9da5c81b` also **failed**. The converter
+child exited successfully, but verification reported `stage=verify` and
+`failure=contract`; no verified model or inference followed. All reported
+guest-unit, private-file, QEMU and scratch cleanup checks passed, with scoped
+routes/DNS unchanged. The separate raw host-route byte comparison was false.
+Original artifact ZIP SHA-256:
+`50ad3ba19fe9811e132f2dad7ee3c49407d5fcecc86a65a816d7a0637eab996e`;
+job `112799334236` log SHA-256:
+`24bcefeb3279b24e011008fecca2037a0808dac2af82587527c1d378759c86a3`.
+
+The new core pin corrects one source-proven verifier mismatch: the pinned
+Qwen3 converter omits `qwen3.rope.dimension_count`, and its loader uses the
+validated attention key length when that optional value is absent. Verification
+now follows the same rule while still rejecting an incorrect explicit rotary
+length or any missing required model parameter. This is a targeted correction,
+not retrospective proof of the first failed assertion or a successful conversion.
+Tensor, tokenizer, prompt and resource checks remain unchanged. A fresh isolated
+trial is required after both repositories pass their source checks.
 
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
