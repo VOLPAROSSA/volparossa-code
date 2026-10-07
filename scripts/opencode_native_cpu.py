@@ -15,7 +15,9 @@ import pwd
 import re
 import socket
 import stat
+import struct
 import subprocess
+import time
 
 SOURCE = '7fe450e19305b828c199d602c23a8337aaa1f03b'
 ORIGIN = 'https://github.com/ggml-org/llama.cpp.git'
@@ -23,6 +25,8 @@ KIND = 'llama_cpp_bf16_v1'
 MODEL = 'qwen3-4b-instruct-2507-v1'
 BASE = Path('/home/vpci/opencode-trial')
 CORE = Path('/home/vpci/source')
+CONTROL = 'native-build-control.sock'
+FRAME_MAX = 1024
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1',
        'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 
@@ -37,6 +41,64 @@ def module(path, name):
     value = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(value)
     return value
+
+
+def remaining(deadline):
+    require(type(deadline) is int and 0 < deadline < 2 ** 63, 'native_deadline')
+    seconds = (deadline - time.monotonic_ns()) / 1_000_000_000
+    require(0 < seconds <= 1800, 'native_deadline')
+    return seconds
+
+
+def binding(kind, nonce, manifest):
+    require(kind in ('ready', 'release') and type(nonce) is str
+            and re.fullmatch('[0-9a-f]{64}', nonce) and type(manifest) is str
+            and re.fullmatch('[0-9a-f]{64}', manifest), 'native_handshake_binding')
+    return (json.dumps(dict(version=1, kind='native_build_' + kind, nonce=nonce,
+                           source_commit=SOURCE, build_manifest_sha256=manifest),
+                       sort_keys=True, separators=(',', ':')) + '\n').encode()
+
+
+def send_frame(channel, raw, deadline):
+    require(type(raw) is bytes and 0 < len(raw) <= FRAME_MAX, 'native_handshake_frame')
+    channel.settimeout(remaining(deadline))
+    channel.sendall(raw)
+    channel.shutdown(socket.SHUT_WR)
+
+
+def receive_frame(channel, deadline):
+    raw = bytearray()
+    while True:
+        channel.settimeout(remaining(deadline))
+        part = channel.recv(FRAME_MAX + 1 - len(raw))
+        if not part:
+            require(0 < len(raw) <= FRAME_MAX, 'native_handshake_frame')
+            return bytes(raw)
+        raw.extend(part)
+        require(len(raw) <= FRAME_MAX, 'native_handshake_frame')
+
+
+def peer(channel, expected_pid):
+    observed = struct.unpack('3i', channel.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    require(type(expected_pid) is int and expected_pid > 1
+            and observed == (expected_pid, os.getuid(), os.getgid()), 'native_handshake_peer')
+
+
+def await_release(base, build, nonce, deadline, parent_pid):
+    # The compiler has been joined and its provenance verified before readiness.
+    # Keep this sole remaining helper alive while its parent reads real cgroup counters.
+    path = base / CONTROL
+    info = path.lstat()
+    require(stat.S_ISSOCK(info.st_mode) and info.st_uid == os.getuid()
+            and stat.S_IMODE(info.st_mode) == 0o600, 'native_handshake_socket')
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+        channel.settimeout(remaining(deadline))
+        channel.connect(str(path))
+        peer(channel, parent_pid)
+        send_frame(channel, binding('ready', nonce, build['build_manifest_sha256']), deadline)
+        require(receive_frame(channel, deadline) == binding('release', nonce, build['build_manifest_sha256']),
+                'native_handshake_binding')
+        remaining(deadline)
 
 
 def file_identity(path, maximum):
@@ -107,12 +169,13 @@ def validate_provision(core, base, report, build):
                 source_weights_sha256=value['source_weights_sha256'])
 
 
-def guest_build():
+def guest_build(deadline=None):
     require(os.getuid() > 0 and pwd.getpwuid(os.getuid()).pw_name == 'vpci'
             and socket.gethostname() == 'volparossa-alpha'
             and subprocess.run(['systemd-detect-virt', '--vm'], check=True, capture_output=True,
                                text=True, timeout=10).stdout.strip() == 'kvm'
             and 'VERSION_ID="13"' in Path('/etc/os-release').read_text(), 'disposable_guest_required')
+    remaining(deadline)
     os.umask(0o077)
     source, output = BASE / 'llama-source', BASE / 'llama-build'
     require(not source.exists() and not source.is_symlink() and not output.exists() and not output.is_symlink(),
@@ -122,7 +185,7 @@ def guest_build():
     for operation in (['init', '--quiet'], ['remote', 'add', 'origin', ORIGIN],
                       ['fetch', '--depth=1', '--no-tags', 'origin', SOURCE], ['checkout', '--detach', '--quiet', 'FETCH_HEAD']):
         subprocess.run([*git, *operation], cwd=source, env=ENV, check=True, stdin=subprocess.DEVNULL,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=min(300, remaining(deadline)))
     builder = module(CORE / 'workers/volparossa-ml/build_llama_cpu.py', 'trial_native_build')
     require(builder.SOURCE == SOURCE and builder.ORIGIN == ORIGIN, 'native_builder_pin')
     builder.verify_source(source)
@@ -131,16 +194,22 @@ def guest_build():
     # compiler cleanup. No source acquisition or compilation runs on the host.
     subprocess.run([os.sys.executable, '-B', str(CORE / 'workers/volparossa-ml/build_llama_cpu.py'),
                     '--source', str(source), '--output', str(output), '--execute'],
-                   env=ENV, check=True, timeout=1800)
-    validate_build(CORE, BASE)
+                   env=ENV, check=True, timeout=remaining(deadline))
+    return validate_build(CORE, BASE)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true', required=True)
-    parser.parse_args()
+    parser.add_argument('--deadline-monotonic-ns', type=int, required=True)
+    parser.add_argument('--handshake-nonce', required=True)
+    parser.add_argument('--parent-pid', type=int, required=True)
+    args = parser.parse_args()
     try:
-        guest_build()
+        binding('ready', args.handshake_nonce, '0' * 64)
+        require(args.parent_pid > 1, 'native_handshake_peer')
+        build = guest_build(args.deadline_monotonic_ns)
+        await_release(BASE, build, args.handshake_nonce, args.deadline_monotonic_ns, args.parent_pid)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         print('NATIVE_GUEST_SOURCE_BUILD_FAILED')
         raise SystemExit(1)

@@ -326,9 +326,27 @@ def closed_native_unit(state):
     code = state.get('ExecMainStatus', '')
     return dict(active=state.get('ActiveState') if state.get('ActiveState') in
                 ('active', 'inactive', 'failed', 'activating', 'deactivating') else 'unknown',
+                substate=state.get('SubState') if state.get('SubState') in
+                ('running', 'exited', 'failed', 'dead', 'start', 'stop', 'stop-sigterm', 'stop-sigkill') else 'unknown',
                 result=state.get('Result') if state.get('Result') in
                 ('success', 'exit-code', 'signal', 'core-dump', 'oom-kill', 'timeout', 'resources') else 'unknown',
                 status=int(code) if re.fullmatch('[0-9]{1,3}', code) and int(code) <= 255 else None)
+
+
+def closed_native_exception(error):
+    if isinstance(error, FileNotFoundError):
+        return 'missing_file'
+    if isinstance(error, PermissionError):
+        return 'permission'
+    if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)):
+        return 'timeout'
+    if isinstance(error, OSError):
+        return 'os_error'
+    if isinstance(error, subprocess.SubprocessError):
+        return 'subprocess_error'
+    if isinstance(error, ValueError):
+        return 'deadline' if str(error) == 'native_deadline' else 'contract'
+    return 'invalid_shape'
 
 
 def native_memory(limit):
@@ -340,6 +358,98 @@ def native_memory(limit):
             and value['swap'] == value['swap_current'] == value['oom'] == value['oom_kill'] == 0,
             'native_build_resource_violation')
     return value
+
+
+def native_helper_state(report):
+    state = properties(NATIVE_UNIT)
+    report['native_build_unit'] = closed_native_unit(state)
+    return state
+
+
+def native_helper_live(state, expected_pid=None):
+    raw = state.get('MainPID', '')
+    require(state.get('ActiveState') == 'active' and state.get('SubState') == 'running'
+            and re.fullmatch('[0-9]{1,10}', raw) and 1 < int(raw) < 2 ** 31,
+            'native_helper_not_running')
+    pid = int(raw)
+    require(expected_pid is None or pid == expected_pid, 'native_helper_changed')
+    group = cgroup(NATIVE_UNIT)
+    require(group.is_dir(), 'native_cgroup_missing')
+    files = []
+    for path in group.rglob('cgroup.procs'):
+        require(len(files) < 16, 'native_cgroup_shape')
+        files.append(path)
+    require(files and group / 'cgroup.procs' in files, 'native_cgroup_shape')
+    processes = []
+    for path in files:
+        with path.open('rb') as stream:
+            raw = stream.read(4097)
+        require(len(raw) <= 4096 and all(re.fullmatch(rb'[0-9]{1,10}', row) for row in raw.splitlines()),
+                'native_cgroup_shape')
+        processes.extend(int(row) for row in raw.splitlines())
+    require(processes == [pid], 'native_build_descendants')
+    return pid
+
+
+def native_build_handshake(native, listener, nonce, deadline, limit, report):
+    report['native_build_stage'] = 'ready'
+    while True:
+        listener.settimeout(min(.2, native.remaining(deadline)))
+        try:
+            channel, _ = listener.accept()
+            break
+        except TimeoutError:
+            state = native_helper_state(report)
+            require(state.get('ActiveState') == 'active' and state.get('SubState') == 'running',
+                    'native_build_ended_before_ready')
+    with channel:
+        helper_pid = native_helper_live(native_helper_state(report))
+        native.peer(channel, helper_pid)
+        raw = native.receive_frame(channel, deadline)
+        report['native_build_stage'] = 'provenance'
+        build = native.validate_build(SOURCE, BASE)
+        require(raw == native.binding('ready', nonce, build['build_manifest_sha256']), 'native_handshake_binding')
+        native.remaining(deadline)
+        report['native_build_stage'] = 'resources'
+        native_helper_live(native_helper_state(report), helper_pid)
+        measured = native_memory(limit)
+        native_helper_live(native_helper_state(report), helper_pid)
+        report['native_build_memory'] = measured
+        report['native_build_stage'] = 'release'
+        native.send_frame(channel, native.binding('release', nonce, build['build_manifest_sha256']), deadline)
+    report['native_build_stage'] = 'exit'
+    while True:
+        native.remaining(deadline)
+        state = native_helper_state(report)
+        if state.get('SubState') == 'exited' or state.get('ActiveState') in ('failed', 'inactive'):
+            break
+        time.sleep(min(.1, native.remaining(deadline)))
+    require(state.get('SubState') == 'exited' and state.get('Result') == 'success'
+            and state.get('ExecMainStatus') == '0' and empty(NATIVE_UNIT), 'native_build_failed')
+    native.remaining(deadline)
+    report['native_build_stage'] = 'complete'
+    return build
+
+
+def run_native_build(limit, report):
+    native = module(INPUT / 'code/scripts/opencode_native_cpu.py', 'opencode_native_inputs')
+    nonce, deadline = os.urandom(32).hex(), time.monotonic_ns() + 1800 * 1_000_000_000
+    path = BASE / native.CONTROL
+    report['native_build_stage'] = 'launch'
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(path))  # Existing socket/path is a failure, never replaced.
+            path.chmod(0o600)
+            listener.listen(1)
+            start(NATIVE_UNIT, [sys.executable, '-B', str(INPUT / 'code/scripts/opencode_native_cpu.py'),
+                  '--execute', '--deadline-monotonic-ns', str(deadline), '--handshake-nonce', nonce,
+                  '--parent-pid', str(os.getpid())], limit, 1800, public_source_build=True)
+            return native_build_handshake(native, listener, nonce, deadline, limit, report)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        report['native_build_exception'] = closed_native_exception(error)
+        raise
+    # The private socket remains inside BASE until the existing joined cleanup;
+    # no temporary handshake path can escape or weaken the all-units-empty gate.
 
 
 def start(name, command, limit, seconds, public_source_build=False):
@@ -405,20 +515,7 @@ def guest(args):
             report['phase'] = 'native-source-build'
             require(properties(NATIVE_UNIT).get('LoadState') == 'not-found', 'existing_unit')
             created.append(NATIVE_UNIT)
-            start(NATIVE_UNIT, [sys.executable, '-B', str(INPUT / 'code/scripts/opencode_native_cpu.py'),
-                  '--execute'], profile['core_memory_bytes'], 1800, public_source_build=True)
-            deadline = time.monotonic() + 1815
-            while time.monotonic() < deadline:
-                native_state = properties(NATIVE_UNIT)
-                if native_state.get('SubState') == 'exited' or native_state.get('ActiveState') in ('failed', 'inactive'):
-                    break
-                time.sleep(2)
-            report['native_build_unit'] = closed_native_unit(native_state)
-            require(native_state.get('SubState') == 'exited' and native_state.get('Result') == 'success'
-                    and native_state.get('ExecMainStatus') == '0' and empty(NATIVE_UNIT), 'native_build_failed')
-            report['native_build_memory'] = native_memory(profile['core_memory_bytes'])
-            native = module(INPUT / 'code/scripts/opencode_native_cpu.py', 'opencode_native_inputs')
-            report['native_build'] = native.validate_build(SOURCE, BASE)
+            report['native_build'] = run_native_build(profile['core_memory_bytes'], report)
         report['phase'] = 'model-provision'
         provision_stage = 'pins'
         model = module(private.ML / 'provision.py', 'opencode_model_provision')

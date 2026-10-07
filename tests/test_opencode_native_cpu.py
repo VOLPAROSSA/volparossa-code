@@ -7,9 +7,13 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
+import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -292,10 +296,313 @@ sudo() { return 99; }
 
     def test_native_unit_diagnostics_are_closed_and_do_not_invent_log_inspection(self):
         value = TRIAL.closed_native_unit({'ActiveState': 'failed', 'Result': 'timeout',
-                                         'ExecMainStatus': '9', 'private': 'CANARY'})
-        self.assertEqual(value, {'active': 'failed', 'result': 'timeout', 'status': 9})
+                                         'SubState': 'failed', 'ExecMainStatus': '9', 'private': 'CANARY'})
+        self.assertEqual(value, {'active': 'failed', 'substate': 'failed', 'result': 'timeout', 'status': 9})
         self.assertNotIn('CANARY', json.dumps(value))
         self.assertNotIn('stderr', json.dumps(value))
+        self.assertEqual(TRIAL.closed_native_unit({'SubState': 'CANARY'})['substate'], 'unknown')
+        for error, expected in ((FileNotFoundError('CANARY'), 'missing_file'),
+                                (PermissionError('CANARY'), 'permission'),
+                                (TimeoutError('CANARY'), 'timeout'),
+                                (subprocess.TimeoutExpired(['CANARY'], 1), 'timeout'),
+                                (subprocess.CalledProcessError(1, ['CANARY']), 'subprocess_error'),
+                                (OSError('CANARY'), 'os_error'),
+                                (ValueError('native_deadline'), 'deadline'),
+                                (ValueError('CANARY'), 'contract'), (KeyError('CANARY'), 'invalid_shape')):
+            self.assertEqual(TRIAL.closed_native_exception(error), expected)
+
+    def test_original_post_exit_resource_read_reproduces_pruned_cgroup_failure(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(TRIAL, 'cgroup', return_value=Path(temp) / 'pruned'):
+            state = dict(ActiveState='active', SubState='exited', Result='success', ExecMainStatus='0')
+            self.assertEqual(TRIAL.closed_native_unit(state)['status'], 0)
+            self.assertTrue(TRIAL.empty(TRIAL.NATIVE_UNIT))
+            with self.assertRaises(FileNotFoundError):
+                TRIAL.native_memory(11 * TRIAL.GIB)
+
+    def exercise_handshake(self, *, ready_nonce=None, terminal_failure=False, resources=None,
+                           pruned=False, descendants=False, stale_manifest=False, expire_after_snapshot=False,
+                           ready_payload=None):
+        """Real local sockets, synthetic cgroup/unit data; never a host service/build/model."""
+        with tempfile.TemporaryDirectory(prefix='vp-native-') as temp:
+            root, limit = Path(temp), 11 * TRIAL.GIB
+            group = root / 'group'
+            group.mkdir()
+            values = {'cgroup.procs': str(os.getpid()) + '\n', 'memory.max': str(limit),
+                      'memory.swap.max': '0', 'memory.peak': '123456', 'memory.swap.current': '0',
+                      'memory.events': 'low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n'}
+            if descendants:
+                values['cgroup.procs'] += str(os.getpid() + 1) + '\n'
+            values.update(resources or {})
+            for name, value in values.items():
+                (group / name).write_text(value)
+            build = {'build_manifest_sha256': 'a' * 64}
+            nonce = 'b' * 64
+            done, errors, events = threading.Event(), [], []
+            expired = threading.Event()
+            clock = time.monotonic_ns
+            deadline = time.monotonic_ns() + 2_000_000_000
+            def helper():
+                try:
+                    if ready_payload is None:
+                        NATIVE.await_release(root, build, ready_nonce or nonce, deadline, os.getpid())
+                    else:
+                        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+                            channel.settimeout(NATIVE.remaining(deadline))
+                            channel.connect(str(root / NATIVE.CONTROL))
+                            NATIVE.send_frame(channel, ready_payload, deadline)
+                            NATIVE.receive_frame(channel, deadline)
+                    events.append('helper_released')
+                except Exception as error:
+                    errors.append(error)
+                finally:
+                    done.set()
+            def state(_name):
+                if done.is_set():
+                    (group / 'cgroup.procs').write_text('')
+                    return dict(ActiveState='failed' if terminal_failure else 'active',
+                                SubState='failed' if terminal_failure else 'exited',
+                                MainPID='0', Result='exit-code' if terminal_failure else 'success',
+                                ExecMainStatus='7' if terminal_failure else '0')
+                return dict(ActiveState='active', SubState='running', MainPID=str(os.getpid()),
+                            Result='success', ExecMainStatus='0')
+            original_memory = TRIAL.native_memory
+            def observe(current_limit):
+                self.assertFalse(done.is_set())
+                self.assertNotIn('helper_released', events)
+                result = original_memory(current_limit)
+                events.append('parent_measured')
+                if expire_after_snapshot:
+                    expired.set()
+                return result
+            report, failure, result = {}, None, None
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                path = root / NATIVE.CONTROL
+                listener.bind(str(path))
+                path.chmod(0o600)
+                listener.listen(1)
+                worker = threading.Thread(target=helper)
+                worker.start()
+                try:
+                    with patch.object(TRIAL, 'properties', side_effect=state), \
+                            patch.object(TRIAL, 'cgroup', return_value=root / 'missing' if pruned else group), \
+                            patch.object(TRIAL, 'native_memory', side_effect=observe), \
+                            patch.object(NATIVE.time, 'monotonic_ns', side_effect=lambda:
+                                         deadline + 1 if expired.is_set() else clock()), \
+                            patch.object(NATIVE, 'validate_build', return_value=dict(build,
+                                build_manifest_sha256='c' * 64 if stale_manifest else build['build_manifest_sha256'])):
+                        result = TRIAL.native_build_handshake(NATIVE, listener, nonce, deadline, limit, report)
+                except Exception as error:
+                    failure = error
+                finally:
+                    worker.join(timeout=3)
+                    self.assertFalse(worker.is_alive(), 'helper must join on every handshake failure')
+            return result, report, failure, errors, events
+
+    def test_actual_socket_handshake_keeps_helper_live_for_parent_resource_snapshot(self):
+        result, report, failure, errors, events = self.exercise_handshake()
+        self.assertIsNone(failure)
+        self.assertEqual(errors, [])
+        self.assertEqual(events, ['parent_measured', 'helper_released'])
+        self.assertEqual(result, {'build_manifest_sha256': 'a' * 64})
+        self.assertEqual(report['native_build_stage'], 'complete')
+        self.assertEqual(report['native_build_unit']['substate'], 'exited')
+        self.assertEqual(report['native_build_memory'], dict(maximum=11 * TRIAL.GIB, swap=0,
+                         peak=123456, oom_kill=0, swap_current=0, oom=0))
+
+    def test_separate_helper_process_uses_actual_peer_credentials_and_joins(self):
+        # The real handshake crosses a process boundary. Only unit/cgroup and
+        # build provenance are inert fixtures; no systemd, source build or model.
+        with tempfile.TemporaryDirectory(prefix='vp-native-') as temp, \
+                socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            root, limit = Path(temp), 11 * TRIAL.GIB
+            group = root / 'group'
+            group.mkdir()
+            for name, value in {'memory.max': str(limit), 'memory.swap.max': '0',
+                                'memory.peak': '123456', 'memory.swap.current': '0',
+                                'memory.events': 'oom 0\noom_kill 0\n'}.items():
+                (group / name).write_text(value)
+            path = root / NATIVE.CONTROL
+            listener.bind(str(path))
+            path.chmod(0o600)
+            listener.listen(1)
+            deadline = time.monotonic_ns() + 3_000_000_000
+            nonce, build = 'b' * 64, {'build_manifest_sha256': 'a' * 64}
+            program = '''import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('inert_native_helper', sys.argv[1])
+value = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(value)
+value.await_release(Path(sys.argv[2]), {'build_manifest_sha256': 'a' * 64},
+                    sys.argv[3], int(sys.argv[4]), int(sys.argv[5]))
+'''
+            child = subprocess.Popen([sys.executable, '-B', '-c', program,
+                str(ROOT / 'scripts/opencode_native_cpu.py'), str(root), nonce, str(deadline), str(os.getpid())],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (group / 'cgroup.procs').write_text(str(child.pid) + '\n')
+            def state(_name):
+                code = child.poll()
+                if code is not None:
+                    (group / 'cgroup.procs').write_text('')
+                    return dict(ActiveState='active' if code == 0 else 'failed',
+                                SubState='exited' if code == 0 else 'failed',
+                                MainPID='0', Result='success' if code == 0 else 'exit-code', ExecMainStatus=str(code))
+                return dict(ActiveState='active', SubState='running', MainPID=str(child.pid),
+                            Result='success', ExecMainStatus='0')
+            try:
+                with patch.object(TRIAL, 'properties', side_effect=state), \
+                        patch.object(TRIAL, 'cgroup', return_value=group), \
+                        patch.object(NATIVE, 'validate_build', return_value=build):
+                    report = {}
+                    self.assertEqual(TRIAL.native_build_handshake(NATIVE, listener, nonce, deadline, limit, report), build)
+                    self.assertEqual(report['native_build_stage'], 'complete')
+                stdout, stderr = child.communicate(timeout=1)
+                self.assertEqual((child.returncode, stdout, stderr), (0, b'', b''))
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                child.communicate(timeout=2)
+
+    def test_ready_binding_or_manifest_mismatch_never_releases_helper(self):
+        for options in ({'ready_nonce': 'c' * 64}, {'stale_manifest': True},
+                        {'ready_payload': b'{"unknown":"CANARY"}\n'}, {'ready_payload': b'invalid\n'}):
+            with self.subTest(options=options):
+                result, report, failure, errors, events = self.exercise_handshake(**options)
+                self.assertIsNone(result)
+                self.assertRegex(str(failure), 'native_handshake_binding')
+                self.assertTrue(errors)
+                self.assertEqual(events, [])
+                self.assertNotIn('native_build_memory', report)
+
+    def test_expiry_after_valid_snapshot_still_refuses_release_and_success(self):
+        result, report, failure, errors, events = self.exercise_handshake(expire_after_snapshot=True)
+        self.assertIsNone(result)
+        self.assertRegex(str(failure), 'native_deadline')
+        self.assertEqual(events, ['parent_measured'])
+        self.assertTrue(errors)
+        self.assertEqual(report['native_build_stage'], 'release')
+
+    def test_pruned_cgroup_or_remaining_descendants_cannot_pass_readiness(self):
+        for options in ({'pruned': True}, {'descendants': True}):
+            with self.subTest(options=options):
+                result, report, failure, errors, events = self.exercise_handshake(**options)
+                self.assertIsNone(result)
+                self.assertIsInstance(failure, ValueError)
+                self.assertEqual(events, [])
+                self.assertTrue(errors)
+                self.assertNotIn('native_build_memory', report)
+
+    def test_nonzero_actual_swap_or_oom_never_releases_helper(self):
+        for mutation in ({'memory.swap.current': '1'}, {'memory.swap.max': '1'},
+                         {'memory.events': 'oom 1\noom_kill 0\n'},
+                         {'memory.events': 'oom 0\noom_kill 1\n'},
+                         {'memory.max': str(12 * TRIAL.GIB)}, {'memory.peak': str(12 * TRIAL.GIB)}):
+            with self.subTest(mutation=mutation):
+                result, report, failure, errors, events = self.exercise_handshake(resources=mutation)
+                self.assertIsNone(result)
+                self.assertRegex(str(failure), 'native_build_resource_violation')
+                self.assertEqual(events, [])
+                self.assertTrue(errors)
+                self.assertEqual(report['native_build_stage'], 'resources')
+
+    def test_parent_measurement_does_not_mask_failed_exit_after_release(self):
+        result, report, failure, errors, events = self.exercise_handshake(terminal_failure=True)
+        self.assertIsNone(result)
+        self.assertRegex(str(failure), 'native_build_failed')
+        self.assertEqual(errors, [])
+        self.assertEqual(events, ['parent_measured', 'helper_released'])
+        self.assertEqual(report['native_build_stage'], 'exit')
+        self.assertEqual(report['native_build_unit']['status'], 7)
+
+    def test_release_mismatch_is_refused_by_actual_helper_socket(self):
+        with tempfile.TemporaryDirectory(prefix='vp-native-') as temp:
+            root, errors = Path(temp), []
+            deadline = time.monotonic_ns() + 2_000_000_000
+            def helper():
+                try:
+                    NATIVE.await_release(root, {'build_manifest_sha256': 'a' * 64},
+                                         'b' * 64, deadline, os.getpid())
+                except Exception as error:
+                    errors.append(error)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                path = root / NATIVE.CONTROL
+                listener.bind(str(path))
+                path.chmod(0o600)
+                listener.listen(1)
+                listener.settimeout(2)
+                worker = threading.Thread(target=helper)
+                worker.start()
+                try:
+                    channel, _ = listener.accept()
+                    with channel:
+                        self.assertEqual(NATIVE.receive_frame(channel, deadline), NATIVE.binding('ready', 'b' * 64, 'a' * 64))
+                        NATIVE.send_frame(channel, NATIVE.binding('release', 'c' * 64, 'a' * 64), deadline)
+                finally:
+                    worker.join(timeout=3)
+                    self.assertFalse(worker.is_alive())
+            self.assertEqual(len(errors), 1)
+            self.assertRegex(str(errors[0]), 'native_handshake_binding')
+
+    def test_expired_unknown_peer_and_oversized_or_empty_socket_frames_fail_closed(self):
+        now = time.monotonic_ns()
+        for deadline in (now - 1, now + 1801 * 1_000_000_000, True, None):
+            with self.subTest(deadline=deadline), self.assertRaisesRegex(ValueError, 'native_deadline'):
+                NATIVE.remaining(deadline)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            with self.assertRaisesRegex(ValueError, 'native_deadline'):
+                TRIAL.native_build_handshake(NATIVE, listener, 'b' * 64, now - 1, 11 * TRIAL.GIB, {})
+        for payload in (b'', b'x' * 1025):
+            left, right = socket.socketpair()
+            with self.subTest(size=len(payload)), left, right:
+                NATIVE.peer(left, os.getpid())
+                with self.assertRaisesRegex(ValueError, 'native_handshake_peer'):
+                    NATIVE.peer(left, os.getpid() + 1)
+                right.sendall(payload)
+                right.shutdown(socket.SHUT_WR)
+                with self.assertRaisesRegex(ValueError, 'native_handshake_frame'):
+                    NATIVE.receive_frame(left, time.monotonic_ns() + 1_000_000_000)
+        left, right = socket.socketpair()
+        with left, right, self.assertRaises(TimeoutError):
+            NATIVE.receive_frame(left, time.monotonic_ns() + 10_000_000)
+
+    def test_missing_readiness_after_unit_failure_is_not_waited_into_success(self):
+        with tempfile.TemporaryDirectory(prefix='vp-native-') as temp, \
+                socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(Path(temp) / 'control'))
+            listener.listen(1)
+            state = dict(ActiveState='failed', SubState='failed', MainPID='0', Result='exit-code', ExecMainStatus='1')
+            report = {}
+            with patch.object(TRIAL, 'properties', return_value=state), \
+                    self.assertRaisesRegex(ValueError, 'native_build_ended_before_ready'):
+                TRIAL.native_build_handshake(NATIVE, listener, 'b' * 64,
+                                            time.monotonic_ns() + 1_000_000_000, 11 * TRIAL.GIB, report)
+            self.assertEqual(report['native_build_unit']['status'], 1)
+
+    def test_launch_uses_one_original_deadline_and_closes_listener_on_errors(self):
+        with tempfile.TemporaryDirectory(prefix='vp-native-') as temp, \
+                patch.object(TRIAL, 'BASE', Path(temp)), patch.object(TRIAL, 'module', return_value=NATIVE), \
+                patch.object(TRIAL, 'start') as start:
+            report, before = {}, time.monotonic_ns()
+            def fail(native, listener, nonce, deadline, limit, observed):
+                self.assertIs(native, NATIVE)
+                self.assertIs(observed, report)
+                self.assertEqual(limit, 11 * TRIAL.GIB)
+                self.assertLessEqual(deadline, time.monotonic_ns() + 1800 * 1_000_000_000)
+                self.assertGreaterEqual(deadline, before + 1800 * 1_000_000_000)
+                unit, args, memory, seconds = start.call_args.args
+                self.assertEqual((unit, memory, seconds), (TRIAL.NATIVE_UNIT, limit, 1800))
+                self.assertEqual(start.call_args.kwargs, {'public_source_build': True})
+                self.assertEqual(args[-6:], ['--deadline-monotonic-ns', str(deadline),
+                                           '--handshake-nonce', nonce, '--parent-pid', str(os.getpid())])
+                self.assertEqual(Path(listener.getsockname()), Path(temp) / NATIVE.CONTROL)
+                raise FileNotFoundError('CANARY')
+            with patch.object(TRIAL, 'native_build_handshake', side_effect=fail), self.assertRaises(FileNotFoundError):
+                TRIAL.run_native_build(11 * TRIAL.GIB, report)
+            self.assertEqual(report['native_build_exception'], 'missing_file')
+            self.assertNotIn('CANARY', json.dumps(report))
+            # Existing control endpoints are never overwritten/reused.
+            with self.assertRaises(OSError):
+                TRIAL.run_native_build(11 * TRIAL.GIB, {})
+            self.assertEqual(start.call_count, 1)
 
     def bundle_fixture(self, directory):
         base, core = Path(directory) / 'base', Path(directory) / 'core'

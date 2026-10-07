@@ -738,6 +738,30 @@ CLI construction error, not the earlier model-forward stall. The original
 failed source run remains failure evidence; the new source still requires its
 own passing CI before any trial.
 
+That core's source checks subsequently passed. The first explicitly native
+[trial 37239050033](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/37239050033)
+on Code `77fc08a88237ca8dd74d403222dd0e1548ffb46c` remains **failed** at
+`native-source-build`. The original report records an active build unit with
+result `success` and status `0`, but no completed resource observation or retained
+build-manifest binding. No model was provisioned and no coding task ran. Owned
+guest units/private files and outer QEMU/scratch cleanup passed; the recorded
+outer routes/DNS comparison was unchanged. Original artifact ZIP SHA-256:
+`ed5f8c699806fc1f4f7438ca2ffc3ded2e26a8cd7d95e445204cd9c815ac2e07`.
+
+The fixture had read cgroup resource files only after helper exit. systemd may
+[prune that empty cgroup even while keeping the unit active/exited](https://github.com/systemd/systemd/blob/v257/src/core/service.c#L1203-L1206).
+An inert reproduction gives the same missing-resource report shape. The original
+exception and substate were not retained, so this is not a uniquely established
+retrospective cause. The follow-up uses a bounded, source-bound local socket
+ready/release handshake: after joining the compiler and checking provenance,
+the helper stays alive while its parent checks the exact unit, sole remaining
+helper PID and actual cgroup counters. Only then may it exit, still requiring
+status `0` and an empty unit. The same absolute 1,800-second build deadline
+includes the handshake. Missing/mismatched/late messages, unavailable counters
+and failed exits remain failures. Closed substate, stage and exception-category
+diagnostics expose no raw logs or private paths. This correction is not yet
+verified by another actual native trial.
+
 Select the native backend consistently for source selection, packing and
 execution, with `--model-profile qwen3-4b-instruct-2507-v1`. The manual workflow
 exposes the same explicit choice. It must be registered and dispatched against
@@ -754,8 +778,9 @@ request budget, coding task and independent tests are unchanged. This is not
 quantization, a smaller model, confidential remote execution or a new app-level
 peer scheduler.
 
-Forty-five targeted Python fixture checks and forty-seven Node consumer/session
-checks pass. They cover exact source/backend/artifact bindings, negative cases,
+Fifty-seven targeted Python fixture checks pass; the unchanged consumer/session
+code retains its earlier forty-seven passing Node checks. These checks cover
+exact source/backend/artifact bindings, negative cases,
 unchanged defaults, measured resource limits and cleanup contracts. The actual
 build-shell selector now forwards the explicit backend choice too; an inert
 shell-prefix regression reproduces the previous mismatch before any profile,
