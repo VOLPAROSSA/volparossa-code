@@ -1,0 +1,12 @@
+{
+  "preview_files": 111,
+  "identical_repeat_build": true,
+  "production": {
+    "origin": "https://volparossa.org",
+    "passed": true
+  },
+  "alternative-host": {
+    "origin": "https://volparossa.github.io",
+    "passed": true
+  }
+}

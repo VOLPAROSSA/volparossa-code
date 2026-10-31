@@ -1,0 +1,100 @@
+<section class="code-hero code-dark" id="top" aria-labelledby="hero-title">
+  {{hero_picture}}
+  <div class="wrap hero-content">
+    <nav class="code-breadcrumb" aria-label="Breadcrumb"><a href="{{applications}}">Applications</a><span aria-hidden="true">/</span><span aria-current="page">Code</span></nav>
+    <p class="eyebrow">VOLPAROSSA CODE</p>
+    <h1 id="hero-title">Bring your<br>ideas into code.</h1>
+    <p class="hero-lead">Connecting OpenCode to a shared foundation for cooperating agents.</p>
+    <p class="status light">In development</p>
+    <div class="actions"><a class="button primary" href="#how-it-works">Explore the workflow <span aria-hidden="true">→</span></a><a class="button ghost" href="{{documentation}}">Read the documentation</a></div>
+  </div>
+  {{gold_edge}}
+</section>
+
+<section class="code-product code-paper" id="opencode" aria-labelledby="product-title">
+  <div class="wrap">
+    <div class="product-heading"><h2 id="product-title">Familiar tools. More minds at work.</h2><p class="section-lead">Built on OpenCode. Extended by VOLPAROSSA.</p>
+      <div class="opencode-brand"><img src="assets/upstream/opencode.svg" width="40" height="50" alt=""><span>OpenCode</span></div>
+    </div>
+    <p class="product-intro">OpenCode provides the coding runtime, tools and agent sessions. VOLPAROSSA connects them to Core for model execution, resource control and the development of network cooperation.</p>
+    <p class="product-scope">The current development integration starts with VS Code and VSCodium on Linux.</p>
+    <figure class="interface-figure"><div class="interface-frame"><img src="assets/upstream/code-screen.webp" width="800" height="557" alt="OpenCode terminal interface showing an upstream example task and code search." loading="lazy" decoding="async"></div><figcaption>OpenCode interface example. The VOLPAROSSA integration is in development.</figcaption></figure>
+    <div class="product-roles">
+      <article>{{terminal_icon}}<div><h3>OpenCode</h3><p class="role-lead">Tools and agent sessions.</p><p>The open-source runtime at the heart of the workflow.</p></div></article>
+      <article>{{cpu_icon}}<div><h3>Core</h3><p class="role-lead">Execution and resources.</p><p>Owns model selection, placement, cancellation and contribution accounting.</p></div></article>
+      <article>{{user_icon}}<div><h3>You</h3><p class="role-lead">Scope and approvals.</p><p>Choose the project, authorize actions and review the result.</p></div></article>
+    </div>
+    <div class="section-links"><a class="text-link" href="https://opencode.ai/">Explore OpenCode <span aria-hidden="true">↗</span></a><a class="text-link" href="#how-it-works">See how it works <span aria-hidden="true">→</span></a></div>
+  </div>
+  {{gold_edge}}
+</section>
+
+<section class="code-workflow code-dark" id="how-it-works" aria-labelledby="workflow-title">
+  <div class="wrap section-intro"><h2 id="workflow-title">From a question to a checked change.</h2><p class="section-lead">A simple flow, with real oversight.</p><p class="intro-copy">Choose a task and a project. OpenCode works within that scope, asks for the required action approvals and returns changes that you can inspect and test.</p></div>
+  <div class="workflow-stage">
+    <div class="workflow-panorama">{{workflow_picture}}</div>
+    <ol class="workflow-steps wrap">
+      <li><div class="step-copy"><span class="step-number" aria-hidden="true">01</span><h3>Set the scope</h3><p>Select the project and describe the task. Access stays within the selected workspace and its permissions.</p></div><div class="step-fragment">{{step_1_picture}}</div></li>
+      <li><div class="step-copy"><span class="step-number" aria-hidden="true">02</span><h3>Understand the code</h3><p>Read relevant files and gather context before proposing a change.</p></div><div class="step-fragment">{{step_2_picture}}</div></li>
+      <li><div class="step-copy"><span class="step-number" aria-hidden="true">03</span><h3>Approve the action</h3><p>Review proposed edits and commands. Each action must have the authority required by the selected workflow.</p></div><div class="step-fragment">{{step_3_picture}}</div></li>
+      <li><div class="step-copy"><span class="step-number" aria-hidden="true">04</span><h3>Check the result</h3><p>Inspect the changes and run approved checks. A passing check describes that check; it does not guarantee every part of the task is correct.</p></div><div class="step-fragment">{{step_4_picture}}</div></li>
+    </ol>
+  </div>
+  <div class="wrap workflow-note"><p><span>Illustrative task</span> “Fix the function so the existing tests pass.”</p><a class="text-link" href="#development">What is demonstrated today? <span aria-hidden="true">↓</span></a></div>
+  {{gold_edge}}
+</section>
+
+<section class="code-cooperation code-paper" id="cooperation" aria-labelledby="cooperation-title">
+  <div class="wrap cooperation-heading"><div class="heading-with-status"><h2 id="cooperation-title">One task. Cooperating agents.</h2><span class="status">Target architecture</span></div><p class="section-lead">Different perspectives, brought together.</p><p class="intro-copy">The goal is to share suitable work across agents and bring their results back into one coding workflow. Core owns placement and resources; OpenCode provides the tool and session workflow.</p></div>
+  <div class="cooperation-stage">{{cooperation_picture}}
+    <div class="contributions wrap">
+      <article><h3>Explore</h3><p>Find relevant code, context and possible approaches.</p></article>
+      <article><h3>Develop</h3><p>Propose changes and carry out authorized work.</p></article>
+      <article><h3>Review</h3><p>Examine proposals, test results and remaining uncertainty.</p></article>
+      <p class="woven-result">Bring the results together.</p>
+    </div>
+  </div>
+  <div class="wrap cooperation-explanation">
+    <p class="roles-note">These roles explain the intended cooperation; they are not three verified remote services available today.</p>
+    <figure class="architecture" aria-labelledby="architecture-caption">
+      <div class="architecture-flow">
+        <div class="architecture-node"><h3>You</h3><p>Task, scope and approvals</p></div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="architecture-node"><h3>OpenCode</h3><p>Tools and sessions</p></div><span class="flow-arrow" aria-hidden="true">↔</span>
+        <div class="architecture-node core-node"><h3>Core</h3><p>Execution and resources</p></div><span class="flow-arrow" aria-hidden="true">↔</span>
+        <div class="executor-branches"><div class="architecture-node"><h3>Local executor</h3><p>Current development path</p></div><div class="architecture-node target-node"><h3>Network cooperation</h3><p>Target architecture</p></div></div>
+      </div>
+      <figcaption id="architecture-caption">You give the task, scope and approvals to OpenCode. OpenCode exchanges work and results with Core. Core connects to the current local executor; network cooperation is the target. Results return for review in the same workflow.</figcaption>
+    </figure>
+    <div class="cooperation-boundary"><p>Protected cooperation for private projects is part of the goal. <strong>Confidential execution on other participants’ devices is not implemented yet.</strong></p><a class="text-link" href="{{core}}">Explore Core <span aria-hidden="true">→</span></a></div>
+  </div>
+</section>
+
+<section class="code-boundaries code-paper" id="boundaries" aria-labelledby="boundaries-title">
+  <div class="wrap boundary-frame"><div class="small-ornament" aria-hidden="true">✦</div><h2 id="boundaries-title">Your project. Explicit boundaries.</h2><p class="section-lead">You control what is shared, what can be done and what stays private.</p>
+    <div class="boundary-items">
+      <article>{{lock_icon}}<div><h3>Scoped access</h3><p>Work is limited to the selected project and its authorized tools.</p></div></article>
+      <article>{{approval_icon}}<div><h3>Approved actions</h3><p>Edits and commands follow explicit permissions. New authority is needed when an action falls outside the agreed scope.</p></div></article>
+      <article>{{shield_icon}}<div><h3>Deliberate sharing</h3><p>Public work uses explicitly reviewed inputs. Private files and history are not silently added.</p></div></article>
+    </div>
+    <p class="privacy-statement">Your source, prompts, tool results and history do not automatically become public cache or training data.</p>
+    <p class="boundary-context">The current coding conversation executor runs locally. A separate public-work route uses an explicitly enrolled snapshot; it does not provide confidential remote execution of private code.</p>
+    <details class="public-work-details"><summary>What does public work mean?</summary><p>Only the exact inputs reviewed for public sharing are enrolled. The agent cannot silently add private files or conversation history to that snapshot. Public task sharing and protected private execution are different capabilities.</p></details>
+  </div>
+</section>
+
+<section class="code-development code-paper" id="development" aria-labelledby="development-title">
+  <div class="wrap"><h2 id="development-title">What works today. What comes next.</h2><p class="intro-copy">Evidence comes from bounded development trials. The complete cooperative coding experience is still being built.</p>
+    <div class="evidence-grid">
+      <article><div class="evidence-label">{{check_icon}}<span>Demonstrated</span></div><h3>A bounded local coding task</h3><p>A real local model has completed a read, edit and test task through OpenCode on a public test project. The original tests stayed unchanged, an independent check passed, and the recorded lifecycle checks completed.</p><p class="evidence-context">The recorded CPU trial took about 37 minutes. It demonstrates this bounded task, not general coding quality or competitive speed.</p><a class="text-link" href="{{local_evidence}}">Read the local coding evidence <span class="source-label">View on GitHub ↗</span></a></article>
+      <article><div class="evidence-label">{{check_icon}}<span>Demonstrated separately</span></div><h3>A public task on another peer</h3><p>A separate owner command obtained a small single-file replacement from a real model on another peer. The edit and check required approval, and the original tests and an independent check passed.</p><p class="evidence-context">This was a public task, not a complete cooperative OpenCode workflow or confidential private execution.</p><a class="text-link" href="{{peer_evidence}}">Read the public peer evidence <span class="source-label">View on GitHub ↗</span></a></article>
+    </div>
+    <div class="development-next"><span class="status">In development</span><div><h3>The complete cooperative workflow</h3><p>End-to-end OpenCode peer cooperation, protected private execution, native editor verification, immune-policy integration and measured improvements in coding quality and speed remain active work.</p></div></div>
+    <p class="release-scope">There is no supported end-user release yet.</p>
+  </div>
+</section>
+
+<section class="code-closing code-dark" id="contribute" aria-labelledby="contribute-title">
+  {{closing_picture}}
+  <div class="wrap closing-content"><h2 id="contribute-title">Help build the shared workshop.</h2><p>Contribute to the coding workflow, editor integration, documentation or testing. Help turn a working development slice into a shared foundation for more capable tools.</p><div class="actions"><a class="button primary" href="{{documentation}}">Read the documentation <span aria-hidden="true">→</span></a><a class="button ghost" href="{{repository}}">{{github_icon}}Contribute on GitHub</a></div><a class="asset-notices" href="assets/CREDITS.txt">Code artwork and notices</a></div>
+  {{gold_edge}}
+</section>

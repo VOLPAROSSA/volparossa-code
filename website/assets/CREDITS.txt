@@ -1,0 +1,29 @@
+VOLPAROSSA Code — The Loom of Ideas
+
+The walnut/brass loom, workbench, cooperation scene and woven fox textile are
+original AI-assisted illustrations generated on 31 October 2026 from the
+owner-selected concept. Reference designs are not published as website assets.
+The source repository retains clean masters, exact generation prompts, crops,
+dimensions and SHA-256 records in website/masters and website/asset-manifest.json.
+
+Original VOLPAROSSA emblem and shared theme:
+VOLPAROSSA/volparossa.github.io, commit
+8cdbbf675dc83d14bb9490b5222b36c10c5670c2, design version 1.0.3.
+The original website/integration GPL-3.0-only license is retained at ../LICENSE.
+
+OpenCode: original mark and actual upstream terminal interface example.
+The screenshot depicts upstream OpenCode, not a completed VOLPAROSSA product.
+Source: anomalyco/opencode, packages/web/src/assets/lander/screenshot.png.
+Original source Git blob: b9d8bf4df1319cb4d378b7bda73002e4fc621860.
+The reviewed 800x557 WebP is copied from the same homepage commit above.
+Notice: upstream/OPENCODE-LICENSE.txt (MIT). No endorsement is implied.
+
+Lucide pictograms: lucide-icons/lucide commit
+a630cec77eac6568b989e87e4947a8bfe45caacd. Exact original SVG geometry retained;
+source inventory and ISC notice: icons/lucide/source.json and icons/lucide/LICENSE.
+GitHub mark: GitHub Primer Octicons; icons/OCTICONS-LICENSE.txt (MIT).
+
+Cormorant Garamond by Christian Thalmann and Inter by Rasmus Andersson:
+local font files with SIL Open Font License notices in fonts/.
+
+Source: https://github.com/VOLPAROSSA/volparossa-code

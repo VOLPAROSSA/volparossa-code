@@ -1,0 +1,688 @@
+{
+  "compositions": {
+    "hero-loom": {
+      "master": "hero-loom",
+      "desktop": [
+        [
+          0,
+          0,
+          1774,
+          887
+        ],
+        [
+          960,
+          1440,
+          1774
+        ]
+      ],
+      "mobile": [
+        [
+          850,
+          0,
+          1774,
+          887
+        ],
+        [
+          480,
+          768
+        ]
+      ]
+    },
+    "workflow-bench": {
+      "master": "workflow-bench",
+      "desktop": [
+        [
+          0,
+          170,
+          2172,
+          724
+        ],
+        [
+          960,
+          1600,
+          2172
+        ]
+      ]
+    },
+    "cooperation-loom": {
+      "master": "cooperation-loom",
+      "desktop": [
+        [
+          0,
+          0,
+          2023,
+          777
+        ],
+        [
+          800,
+          1400,
+          2023
+        ]
+      ]
+    },
+    "woven-fox-detail": {
+      "master": "woven-fox-detail",
+      "desktop": [
+        [
+          0,
+          0,
+          2172,
+          724
+        ],
+        [
+          800,
+          1400,
+          2172
+        ]
+      ],
+      "mobile": [
+        [
+          1030,
+          0,
+          2172,
+          724
+        ],
+        [
+          480,
+          800
+        ]
+      ]
+    },
+    "step-1": {
+      "master": "workflow-bench",
+      "desktop": [
+        [
+          0,
+          200,
+          575,
+          675
+        ],
+        [
+          480,
+          575
+        ]
+      ]
+    },
+    "step-2": {
+      "master": "workflow-bench",
+      "desktop": [
+        [
+          535,
+          190,
+          1130,
+          680
+        ],
+        [
+          480,
+          595
+        ]
+      ]
+    },
+    "step-3": {
+      "master": "workflow-bench",
+      "desktop": [
+        [
+          1110,
+          210,
+          1665,
+          690
+        ],
+        [
+          480,
+          555
+        ]
+      ]
+    },
+    "step-4": {
+      "master": "workflow-bench",
+      "desktop": [
+        [
+          1630,
+          185,
+          2172,
+          690
+        ],
+        [
+          480,
+          542
+        ]
+      ]
+    }
+  },
+  "social_crop": [
+    84,
+    0,
+    1774,
+    887
+  ],
+  "files": {
+    "masters/cooperation-loom.png": {
+      "bytes": 2671024,
+      "sha256": "97e764740fa8d388f7f83bf4ad186df46e4c39a4f47746ea997ed3aa4af23041",
+      "width": 2023,
+      "height": 777
+    },
+    "masters/generation.json": {
+      "bytes": 6416,
+      "sha256": "92db8a668b444ffc51746a56be1f68dabccb0920eacaf21a26b221c332f4539e"
+    },
+    "masters/hero-loom.png": {
+      "bytes": 2627235,
+      "sha256": "0ba6d75992b9e3f9e7d75cbf1dea02975d8e2993b840be7e35f5d8a2db48519b",
+      "width": 1774,
+      "height": 887
+    },
+    "masters/workflow-bench.png": {
+      "bytes": 2496035,
+      "sha256": "56f2736bbcb13e9b453bd28e1fcee3bef02b691d6dc1705f60350cc67723e552",
+      "width": 2172,
+      "height": 724
+    },
+    "masters/woven-fox-detail.png": {
+      "bytes": 2365137,
+      "sha256": "b3fbd7bd0222a9cac85dd71f062e59be17aab31cc2920fa4558d049ce7b697b9",
+      "width": 2172,
+      "height": 724
+    },
+    "assets/CREDITS.txt": {
+      "bytes": 1573,
+      "sha256": "a670501ccc7ceb43effabc18be0eed8a053cf02dd89eb53156c32ede6f8a961a"
+    },
+    "assets/code/cooperation-loom-desktop-1400.avif": {
+      "bytes": 89793,
+      "sha256": "0d94d01c6ef534d659f23711f17dc1ee6e9c5dc40512e9586cffadc614f59e22",
+      "width": 1400,
+      "height": 538
+    },
+    "assets/code/cooperation-loom-desktop-1400.jpg": {
+      "bytes": 201893,
+      "sha256": "a9d7b41a67ec43cd824c32b540c2b33dd847284b5d8a3690d53dcd31a78fc834",
+      "width": 1400,
+      "height": 538
+    },
+    "assets/code/cooperation-loom-desktop-1400.webp": {
+      "bytes": 172896,
+      "sha256": "8288cabb81a000b99d7d84625907fb0d95738b5aa98d59f7a8e2d2414419386a",
+      "width": 1400,
+      "height": 538
+    },
+    "assets/code/cooperation-loom-desktop-2023.avif": {
+      "bytes": 152310,
+      "sha256": "6e7404d047f4b55939b7dcc9d93f4047715f35237a298fa078f06028fb5e98b5",
+      "width": 2023,
+      "height": 777
+    },
+    "assets/code/cooperation-loom-desktop-2023.jpg": {
+      "bytes": 369449,
+      "sha256": "22a811709ebfed954e406bb352bcb6d1cfbaa9a1b62d0d4bfb9b57ae4ca53c4c",
+      "width": 2023,
+      "height": 777
+    },
+    "assets/code/cooperation-loom-desktop-2023.webp": {
+      "bytes": 304724,
+      "sha256": "4ee3d58e8a7ad87bec52444030c91148f6247059e9a2d57d286df4d81a5da3bd",
+      "width": 2023,
+      "height": 777
+    },
+    "assets/code/cooperation-loom-desktop-800.avif": {
+      "bytes": 33300,
+      "sha256": "9a73fbf48c3deae9f8cfd8d1a66a98fb23cdc91ef6a8391de5621ebccb4381b1",
+      "width": 800,
+      "height": 307
+    },
+    "assets/code/cooperation-loom-desktop-800.jpg": {
+      "bytes": 73075,
+      "sha256": "d04676fe646305824923940609f3b5ea533e5d654cb3624e34bfae6fdf794c87",
+      "width": 800,
+      "height": 307
+    },
+    "assets/code/cooperation-loom-desktop-800.webp": {
+      "bytes": 65992,
+      "sha256": "b25422d675298b2c9091494832bd1e7d2aaee8eeda5b1434212c0c9c94576783",
+      "width": 800,
+      "height": 307
+    },
+    "assets/code/hero-loom-desktop-1440.avif": {
+      "bytes": 110948,
+      "sha256": "160a4cd06064a12f90fdaf340b7201303c4eef1c5e486c5afb811bbbeffcd70e",
+      "width": 1440,
+      "height": 720
+    },
+    "assets/code/hero-loom-desktop-1440.jpg": {
+      "bytes": 268734,
+      "sha256": "d5ad286224768ed340458e8b41078928c42748f1a2e69024d869232866c58a5b",
+      "width": 1440,
+      "height": 720
+    },
+    "assets/code/hero-loom-desktop-1440.webp": {
+      "bytes": 226838,
+      "sha256": "ed33fdbdec054135d9a90de031508280fb4d306251e139307bde4a4e14b7ce5d",
+      "width": 1440,
+      "height": 720
+    },
+    "assets/code/hero-loom-desktop-1774.avif": {
+      "bytes": 148886,
+      "sha256": "3ef4204b305172f31b9ac4c3069b90281445b8a22e64f78b60463c82813ea75e",
+      "width": 1774,
+      "height": 887
+    },
+    "assets/code/hero-loom-desktop-1774.jpg": {
+      "bytes": 378172,
+      "sha256": "de3a9ea89ca9c9c68c36a12f3c3cda57e00c21968bbddd8b85be9490dc5926d0",
+      "width": 1774,
+      "height": 887
+    },
+    "assets/code/hero-loom-desktop-1774.webp": {
+      "bytes": 312434,
+      "sha256": "d307418a7cbb6b78ad7b44cd12cb5acb0872c3595109ee502e80d62efed5712a",
+      "width": 1774,
+      "height": 887
+    },
+    "assets/code/hero-loom-desktop-960.avif": {
+      "bytes": 59033,
+      "sha256": "33d93bc79bd590e6a7eee9d52f1df71932d4d8a4c6b45838da4d1574c9194c06",
+      "width": 960,
+      "height": 480
+    },
+    "assets/code/hero-loom-desktop-960.jpg": {
+      "bytes": 132296,
+      "sha256": "d399c61c715c5a9805e27f514d87ecb8b8f6e73afacf7dbe530484dfafb70e14",
+      "width": 960,
+      "height": 480
+    },
+    "assets/code/hero-loom-desktop-960.webp": {
+      "bytes": 115288,
+      "sha256": "04f954c42a15d56a2ffe0fec7e9a062ec029b004815af4eada08bd4b6427c2c5",
+      "width": 960,
+      "height": 480
+    },
+    "assets/code/hero-loom-mobile-480.avif": {
+      "bytes": 41999,
+      "sha256": "9b10634d5cb944385710d7f891a4ab2d351c927e4ae217f6b33e6676fdd8a7d7",
+      "width": 480,
+      "height": 461
+    },
+    "assets/code/hero-loom-mobile-480.jpg": {
+      "bytes": 90576,
+      "sha256": "5ae33f8529850f41390987d17b0ca7540a5c1ec343fafd6709a86cb5d04135c4",
+      "width": 480,
+      "height": 461
+    },
+    "assets/code/hero-loom-mobile-480.webp": {
+      "bytes": 85948,
+      "sha256": "623588b2b7dd01e566c8589957b9ce08636d84fa3fb1db628da43826adce8c13",
+      "width": 480,
+      "height": 461
+    },
+    "assets/code/hero-loom-mobile-768.avif": {
+      "bytes": 89977,
+      "sha256": "6260dd1c712b1f596d3136459f087f253c71c10393a9ed419b79e21beb62b443",
+      "width": 768,
+      "height": 737
+    },
+    "assets/code/hero-loom-mobile-768.jpg": {
+      "bytes": 207586,
+      "sha256": "180f83d0e082859ec8d7b3ab711c12bffc63e55d526a17c05b79ae9e2539d4da",
+      "width": 768,
+      "height": 737
+    },
+    "assets/code/hero-loom-mobile-768.webp": {
+      "bytes": 189968,
+      "sha256": "c2c3012f22a3d60bd56dfdec337c2d9bcd9cef38c35a4560adc83b4e67f9467f",
+      "width": 768,
+      "height": 737
+    },
+    "assets/code/paper-grain.svg": {
+      "bytes": 269,
+      "sha256": "25ebb240b4082d868164bb490c1e2e2388b6aac03df11779c591e4f253dc2635"
+    },
+    "assets/code/social.jpg": {
+      "bytes": 227983,
+      "sha256": "7c5627d05e29e6ef7caa31f7ef02e21ee44922af527f7af5dcc32f936c79300e",
+      "width": 1200,
+      "height": 630
+    },
+    "assets/code/step-1-desktop-480.avif": {
+      "bytes": 18770,
+      "sha256": "feec3bafa3a6a33259b85c9edc29f9fabbdb9973db54d8f4507140800241869e",
+      "width": 480,
+      "height": 397
+    },
+    "assets/code/step-1-desktop-480.jpg": {
+      "bytes": 45599,
+      "sha256": "57b06bb2bef5b3491fdfe451f1c498073109c6dd634850a768c00e08374844fb",
+      "width": 480,
+      "height": 397
+    },
+    "assets/code/step-1-desktop-480.webp": {
+      "bytes": 36602,
+      "sha256": "ae4837fb0f84e587aaaf8f689850f2097d3736fca0fcfd47b53dcacc55cc4537",
+      "width": 480,
+      "height": 397
+    },
+    "assets/code/step-1-desktop-575.avif": {
+      "bytes": 25109,
+      "sha256": "683a9c534e4870f40862c85caad9959ab9f3cbfdf328740c7fc6d1a88d2c99ed",
+      "width": 575,
+      "height": 475
+    },
+    "assets/code/step-1-desktop-575.jpg": {
+      "bytes": 61237,
+      "sha256": "3310446841c9efd679c9a63e0e6245da92a38f76f70addc3413e025ba1c79eea",
+      "width": 575,
+      "height": 475
+    },
+    "assets/code/step-1-desktop-575.webp": {
+      "bytes": 47772,
+      "sha256": "6748ae49275c39739d9ed0e92cf718126ed483bd45892891a2e8a427954aae2e",
+      "width": 575,
+      "height": 475
+    },
+    "assets/code/step-2-desktop-480.avif": {
+      "bytes": 21967,
+      "sha256": "c1605951d8d16d4c7eff032f9807653c72f6e859fe50cf456a424a7ba38ad2e5",
+      "width": 480,
+      "height": 395
+    },
+    "assets/code/step-2-desktop-480.jpg": {
+      "bytes": 50968,
+      "sha256": "294942de38271e6a13442420455aa4c6a11fab061f203913ad92f9ed2c27cb4d",
+      "width": 480,
+      "height": 395
+    },
+    "assets/code/step-2-desktop-480.webp": {
+      "bytes": 42640,
+      "sha256": "e10cc9be0f56cca98f0f7121a764d881b598c772f03a9145435ef51ac1406d13",
+      "width": 480,
+      "height": 395
+    },
+    "assets/code/step-2-desktop-595.avif": {
+      "bytes": 29872,
+      "sha256": "2cd1c05e8a1ccc0905c7d092b3b2b39862adb901a49baa02fffb4f26c5910d6e",
+      "width": 595,
+      "height": 490
+    },
+    "assets/code/step-2-desktop-595.jpg": {
+      "bytes": 73303,
+      "sha256": "7661825943686b632a094be7d80b43e3480658b339f5ccedf248811e3db0e11d",
+      "width": 595,
+      "height": 490
+    },
+    "assets/code/step-2-desktop-595.webp": {
+      "bytes": 58536,
+      "sha256": "1bdd4848dc7cfe27c708d5feb407c3aa5f7bb1fb38c93434d0cef059cb176d92",
+      "width": 595,
+      "height": 490
+    },
+    "assets/code/step-3-desktop-480.avif": {
+      "bytes": 20129,
+      "sha256": "f77998a07c18676b0ebcf072ffff3e2377be415968b814b1d8e66d1afd9fec1e",
+      "width": 480,
+      "height": 415
+    },
+    "assets/code/step-3-desktop-480.jpg": {
+      "bytes": 49565,
+      "sha256": "abf34a2331d01efe60d63e55eea76e20456ec9d9da6df6e846b6f2aad98c38a3",
+      "width": 480,
+      "height": 415
+    },
+    "assets/code/step-3-desktop-480.webp": {
+      "bytes": 40412,
+      "sha256": "aa956f851aaab254c47a008d135b0605b6b469f496c0e89c3146c0c4cc96000e",
+      "width": 480,
+      "height": 415
+    },
+    "assets/code/step-3-desktop-555.avif": {
+      "bytes": 25057,
+      "sha256": "f56a6c53b11d41234b7a7cd397ddce84e5a41888eef60af0df5fb543640fa1a4",
+      "width": 555,
+      "height": 480
+    },
+    "assets/code/step-3-desktop-555.jpg": {
+      "bytes": 63185,
+      "sha256": "91ba63e430879e034c8f6a8703ba25a3a2d7ab0aea3eec318d9ba890cc06b8f1",
+      "width": 555,
+      "height": 480
+    },
+    "assets/code/step-3-desktop-555.webp": {
+      "bytes": 50094,
+      "sha256": "6a69ac3744531c35d9cb0788c5ffdfa0d5f2955f3b863d388327dd7656bd765a",
+      "width": 555,
+      "height": 480
+    },
+    "assets/code/step-4-desktop-480.avif": {
+      "bytes": 36188,
+      "sha256": "fd22f9521b0491c83bcaabddd27bc5ff8465691683e8b745997932a086568bde",
+      "width": 480,
+      "height": 447
+    },
+    "assets/code/step-4-desktop-480.jpg": {
+      "bytes": 80731,
+      "sha256": "c5fddfc5f3df44648ced44a816c09a6127ccae66d1c69cf161978479453a9929",
+      "width": 480,
+      "height": 447
+    },
+    "assets/code/step-4-desktop-480.webp": {
+      "bytes": 75290,
+      "sha256": "e4d3a6f9173adf3309a62315359954c78f6a9edd6df6248c4c7be5f58d93548c",
+      "width": 480,
+      "height": 447
+    },
+    "assets/code/step-4-desktop-542.avif": {
+      "bytes": 44699,
+      "sha256": "c252328779da9918fe05466b69670c5b8a27129e3880eef09b3a97e1602f7b43",
+      "width": 542,
+      "height": 505
+    },
+    "assets/code/step-4-desktop-542.jpg": {
+      "bytes": 99624,
+      "sha256": "1abf34c361c2c2365771e4c94b337a7050456c38e6f7efc90132467277034b3e",
+      "width": 542,
+      "height": 505
+    },
+    "assets/code/step-4-desktop-542.webp": {
+      "bytes": 92224,
+      "sha256": "cf87071b4bc4bd22690ff341e2515d8ffb7d0bf5455b72ee6376431a93b44eb8",
+      "width": 542,
+      "height": 505
+    },
+    "assets/code/variants.json": {
+      "bytes": 2913,
+      "sha256": "6fab5a0ee8a28ad7152fd3f650b16c2fa7e67f84120e1b91c0f2f1a2d3d2b23e"
+    },
+    "assets/code/workflow-bench-desktop-1600.avif": {
+      "bytes": 75662,
+      "sha256": "4f09c0854e5a53ea900163ce96a0dac3e023b5b2e8ba77483f7563bd9a247557",
+      "width": 1600,
+      "height": 408
+    },
+    "assets/code/workflow-bench-desktop-1600.jpg": {
+      "bytes": 178658,
+      "sha256": "39ad6e2fbd1c678ae64269de855a8e288b0382449459d2100e4bee1dee7bf64e",
+      "width": 1600,
+      "height": 408
+    },
+    "assets/code/workflow-bench-desktop-1600.webp": {
+      "bytes": 152444,
+      "sha256": "5f9af7543ab95dbe64553aaa303f910fe3b7d1ecfa3e93fd39f6f8d08584a89f",
+      "width": 1600,
+      "height": 408
+    },
+    "assets/code/workflow-bench-desktop-2172.avif": {
+      "bytes": 120294,
+      "sha256": "ae644fc34d1c193c72cf670f340c34975ec09903f7703a6a7f4c0aa4cfaf1c83",
+      "width": 2172,
+      "height": 554
+    },
+    "assets/code/workflow-bench-desktop-2172.jpg": {
+      "bytes": 297398,
+      "sha256": "b2e63a28e663f91132e35076b7a1f6f38e585be2ac4ca02df71400f412afc6da",
+      "width": 2172,
+      "height": 554
+    },
+    "assets/code/workflow-bench-desktop-2172.webp": {
+      "bytes": 246380,
+      "sha256": "07d2a4c529609ebd2d07b49726350a8b687bbabdc7960aef6ecd63b38b73e260",
+      "width": 2172,
+      "height": 554
+    },
+    "assets/code/workflow-bench-desktop-960.avif": {
+      "bytes": 32627,
+      "sha256": "21d61533d06603fcd7de953bd87568e4af71123004089a53d82b6c34f51e4377",
+      "width": 960,
+      "height": 245
+    },
+    "assets/code/workflow-bench-desktop-960.jpg": {
+      "bytes": 71954,
+      "sha256": "5130df6b89553ed36199a3d836144f6b202cfd85ce2ee719ada4aa64b677a888",
+      "width": 960,
+      "height": 245
+    },
+    "assets/code/workflow-bench-desktop-960.webp": {
+      "bytes": 63716,
+      "sha256": "3cbca795634ab90e28628ea1493f30af0458c2f0d8857ed3cf178091a74e0f69",
+      "width": 960,
+      "height": 245
+    },
+    "assets/code/woven-fox-detail-desktop-1400.avif": {
+      "bytes": 66663,
+      "sha256": "38d420d023498efdb8dd372fef02153a9774905c7ba143b870ed0b566a2ba34c",
+      "width": 1400,
+      "height": 467
+    },
+    "assets/code/woven-fox-detail-desktop-1400.jpg": {
+      "bytes": 157029,
+      "sha256": "d229257e16e7004d84665dd7a8c1e52a09963ce4cf00a7b91e54005359fbe489",
+      "width": 1400,
+      "height": 467
+    },
+    "assets/code/woven-fox-detail-desktop-1400.webp": {
+      "bytes": 137022,
+      "sha256": "722048a80a0c81e608ddebbf57569f5902863faf571f132235bb769baa307da6",
+      "width": 1400,
+      "height": 467
+    },
+    "assets/code/woven-fox-detail-desktop-2172.avif": {
+      "bytes": 125077,
+      "sha256": "cfd51b761316b93810f71f4d6b58086b05cdd05357c06c0a8fc899fdef16038d",
+      "width": 2172,
+      "height": 724
+    },
+    "assets/code/woven-fox-detail-desktop-2172.jpg": {
+      "bytes": 316359,
+      "sha256": "576cc400868351c9dbcfd1c1ef7dfd25be5793c368cdc5367e1c6b9b74f20465",
+      "width": 2172,
+      "height": 724
+    },
+    "assets/code/woven-fox-detail-desktop-2172.webp": {
+      "bytes": 265218,
+      "sha256": "c2efa08de68d37195c3399d6fd909c39b2f8e637376035409d015182f38a7bea",
+      "width": 2172,
+      "height": 724
+    },
+    "assets/code/woven-fox-detail-desktop-800.avif": {
+      "bytes": 25952,
+      "sha256": "fb0beda6540a9fa420647cc6798a7ba26e069d23f09c296983649daceda25c0e",
+      "width": 800,
+      "height": 267
+    },
+    "assets/code/woven-fox-detail-desktop-800.jpg": {
+      "bytes": 57761,
+      "sha256": "3878d9b96370fb4b1ca991a4dfd90c87e9b1b0c6a77711944feeadd05bfe01b2",
+      "width": 800,
+      "height": 267
+    },
+    "assets/code/woven-fox-detail-desktop-800.webp": {
+      "bytes": 50724,
+      "sha256": "3a3147615018f293ee49069f70f9c3b7c368df2e12552cc235c7192995fe46f6",
+      "width": 800,
+      "height": 267
+    },
+    "assets/code/woven-fox-detail-mobile-480.avif": {
+      "bytes": 28310,
+      "sha256": "55afcecfaf12e990b52fa1aee10d57f8fd1903a8d1d1fda05f9700cf0e114c65",
+      "width": 480,
+      "height": 304
+    },
+    "assets/code/woven-fox-detail-mobile-480.jpg": {
+      "bytes": 60436,
+      "sha256": "76989eea975c99c1800028fca6afa2b46e4fd95aeaf4d07f8004fb2950cf0ec1",
+      "width": 480,
+      "height": 304
+    },
+    "assets/code/woven-fox-detail-mobile-480.webp": {
+      "bytes": 59472,
+      "sha256": "6213e91f8edec596903cbefef5eeba89deb23bdd0f1820ece1bac2c907d2a3ee",
+      "width": 480,
+      "height": 304
+    },
+    "assets/code/woven-fox-detail-mobile-800.avif": {
+      "bytes": 68486,
+      "sha256": "e11a564fb74d9e48bb716efb6727d308b34f4b671e6e4961e4fc8e9bf4cb4f19",
+      "width": 800,
+      "height": 507
+    },
+    "assets/code/woven-fox-detail-mobile-800.jpg": {
+      "bytes": 151017,
+      "sha256": "2bddc194ee4b721e1d9449838a20b7ae6f59a82c732bf1ceccf6a1f0ea498820",
+      "width": 800,
+      "height": 507
+    },
+    "assets/code/woven-fox-detail-mobile-800.webp": {
+      "bytes": 142098,
+      "sha256": "ea3608fdb1b97664cb2e7b30bb45fdc1a967f7c5f15541c6a214a699d136c3f9",
+      "width": 800,
+      "height": 507
+    },
+    "assets/code.css": {
+      "bytes": 18548,
+      "sha256": "f2e9d446efac2ed087a73e6e5a2b68bae5273c859924425633e13e4a686523a6"
+    },
+    "assets/icons/lucide/LICENSE": {
+      "bytes": 3208,
+      "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+    },
+    "assets/icons/lucide/circle-check.svg": {
+      "bytes": 278,
+      "sha256": "9711e045a5999f8a3b0782eb88e09b04e0559bc7b379dcc0a4ae645223e10345"
+    },
+    "assets/icons/lucide/cpu.svg": {
+      "bytes": 590,
+      "sha256": "ec83bb69ec029d367d749afc445b39c8e95891ebf99b0400652677c2b149b99c"
+    },
+    "assets/icons/lucide/file-check.svg": {
+      "bytes": 402,
+      "sha256": "c64133f05e44d87830e37c7a9c45a439c5146017f86e91e563f806ff8a2ad4c1"
+    },
+    "assets/icons/lucide/lock-keyhole.svg": {
+      "bytes": 337,
+      "sha256": "fc0b8b7590d1d9e9bb0112c5c2e15a78ade0bfeca6d6f8c79fbbe149236d74be"
+    },
+    "assets/icons/lucide/shield-check.svg": {
+      "bytes": 415,
+      "sha256": "8d4fcdbde5bba4abb1a2f6fe53e37ceb6343a1d5449a9d88f6f97c1971d26c4e"
+    },
+    "assets/icons/lucide/source.json": {
+      "bytes": 2193,
+      "sha256": "c4d89cad979d816ca8e41ba24bf8bb38ee368347142467d6811ad4a2e9a56f7b"
+    },
+    "assets/icons/lucide/target.svg": {
+      "bytes": 314,
+      "sha256": "96a6b16628825a1a207a77e9a5818f74c3e74ea3664783ff5c2a44e6347b90df"
+    },
+    "assets/icons/lucide/terminal.svg": {
+      "bytes": 261,
+      "sha256": "4f9b6488b237757d5cb615ccd07502fa99774826839e2a99017784bdb2596f1a"
+    },
+    "assets/icons/lucide/user-round.svg": {
+      "bytes": 279,
+      "sha256": "84870f26f3faf8da45da84174517519e81b9e8f00319c78954fcbb74f50038a1"
+    },
+    "assets/upstream/code-screen.webp": {
+      "bytes": 39342,
+      "sha256": "29e808243a013a635f42b01e0e7509f2c9d2cb4213509a5546ad81eb17a86703",
+      "width": 800,
+      "height": 557
+    }
+  }
+}

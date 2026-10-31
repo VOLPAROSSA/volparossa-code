@@ -1,0 +1,158 @@
+{
+  "hero-loom": {
+    "desktop": [
+      {
+        "stem": "hero-loom-desktop-960",
+        "width": 960,
+        "height": 480
+      },
+      {
+        "stem": "hero-loom-desktop-1440",
+        "width": 1440,
+        "height": 720
+      },
+      {
+        "stem": "hero-loom-desktop-1774",
+        "width": 1774,
+        "height": 887
+      }
+    ],
+    "mobile": [
+      {
+        "stem": "hero-loom-mobile-480",
+        "width": 480,
+        "height": 461
+      },
+      {
+        "stem": "hero-loom-mobile-768",
+        "width": 768,
+        "height": 737
+      }
+    ]
+  },
+  "workflow-bench": {
+    "desktop": [
+      {
+        "stem": "workflow-bench-desktop-960",
+        "width": 960,
+        "height": 245
+      },
+      {
+        "stem": "workflow-bench-desktop-1600",
+        "width": 1600,
+        "height": 408
+      },
+      {
+        "stem": "workflow-bench-desktop-2172",
+        "width": 2172,
+        "height": 554
+      }
+    ]
+  },
+  "cooperation-loom": {
+    "desktop": [
+      {
+        "stem": "cooperation-loom-desktop-800",
+        "width": 800,
+        "height": 307
+      },
+      {
+        "stem": "cooperation-loom-desktop-1400",
+        "width": 1400,
+        "height": 538
+      },
+      {
+        "stem": "cooperation-loom-desktop-2023",
+        "width": 2023,
+        "height": 777
+      }
+    ]
+  },
+  "woven-fox-detail": {
+    "desktop": [
+      {
+        "stem": "woven-fox-detail-desktop-800",
+        "width": 800,
+        "height": 267
+      },
+      {
+        "stem": "woven-fox-detail-desktop-1400",
+        "width": 1400,
+        "height": 467
+      },
+      {
+        "stem": "woven-fox-detail-desktop-2172",
+        "width": 2172,
+        "height": 724
+      }
+    ],
+    "mobile": [
+      {
+        "stem": "woven-fox-detail-mobile-480",
+        "width": 480,
+        "height": 304
+      },
+      {
+        "stem": "woven-fox-detail-mobile-800",
+        "width": 800,
+        "height": 507
+      }
+    ]
+  },
+  "step-1": {
+    "desktop": [
+      {
+        "stem": "step-1-desktop-480",
+        "width": 480,
+        "height": 397
+      },
+      {
+        "stem": "step-1-desktop-575",
+        "width": 575,
+        "height": 475
+      }
+    ]
+  },
+  "step-2": {
+    "desktop": [
+      {
+        "stem": "step-2-desktop-480",
+        "width": 480,
+        "height": 395
+      },
+      {
+        "stem": "step-2-desktop-595",
+        "width": 595,
+        "height": 490
+      }
+    ]
+  },
+  "step-3": {
+    "desktop": [
+      {
+        "stem": "step-3-desktop-480",
+        "width": 480,
+        "height": 415
+      },
+      {
+        "stem": "step-3-desktop-555",
+        "width": 555,
+        "height": 480
+      }
+    ]
+  },
+  "step-4": {
+    "desktop": [
+      {
+        "stem": "step-4-desktop-480",
+        "width": 480,
+        "height": 447
+      },
+      {
+        "stem": "step-4-desktop-542",
+        "width": 542,
+        "height": 505
+      }
+    ]
+  }
+}
