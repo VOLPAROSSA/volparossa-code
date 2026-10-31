@@ -161,3 +161,42 @@ test('malformed UTF-8 in an SSE data line closes the client without emitting an 
   assert.equal(client.closed, true);
   assert.equal(emitted, false);
 });
+test('truncated SSE event on normal end-of-stream is discarded and the client closes', async t => {
+  const {client, streams} = await fixture(t);
+  await client.connect();
+  let emitted = false;
+  client.on('event', () => { emitted = true; });
+  const closed = once(client, 'closed');
+  streams[0].write('data: {"type":"message.part.delta","properties":{"delta":"truncated"}}\r\n');
+  streams[0].end();
+  await closed;
+  assert.equal(client.closed, true);
+  assert.equal(client.ready, false);
+  assert.equal(emitted, false);
+});
+test('complete SSE event is emitted once before a truncated event at end-of-stream', async t => {
+  const {client, streams} = await fixture(t);
+  await client.connect();
+  const received = [];
+  client.on('event', event => received.push(event));
+  const closed = once(client, 'closed');
+  streams[0].write('data: {"type":"message.part.delta","properties":{"delta":"complete"}}\r\n\r\n');
+  streams[0].write('data: {"type":"message.part.delta","properties":{"delta":"truncated"}}\r\n');
+  streams[0].end();
+  await closed;
+  assert.equal(client.closed, true);
+  assert.deepEqual(received.map(event => event.properties.delta), ['complete']);
+});
+test('truncated SSE event on abrupt disconnect is discarded and the client closes', async t => {
+  const {client, streams} = await fixture(t);
+  await client.connect();
+  let emitted = false;
+  client.on('event', () => { emitted = true; });
+  const closed = once(client, 'closed');
+  streams[0].write('data: {"type":"message.part.delta","properties":{"delta":"truncated"}}\r\n');
+  streams[0].destroy();
+  await closed;
+  assert.equal(client.closed, true);
+  assert.equal(client.ready, false);
+  assert.equal(emitted, false);
+});
