@@ -1,0 +1,267 @@
+{
+  "checkedAt": "2026-10-31T18:13:18.544Z",
+  "url": "http://127.0.0.1:8775/volparossa-code/",
+  "results": [
+    {
+      "engine": "chromium",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 320,
+      "height": 740,
+      "initialTransfer": 232938,
+      "images": 262680,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "chromium",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 390,
+      "height": 844,
+      "initialTransfer": 232938,
+      "images": 262680,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "chromium",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 768,
+      "height": 1024,
+      "initialTransfer": 280916,
+      "images": 350834,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "chromium",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 1440,
+      "height": 900,
+      "initialTransfer": 301887,
+      "images": 525114,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "chromium",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 1920,
+      "height": 1080,
+      "initialTransfer": 339825,
+      "images": 607684,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "chromium",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 844,
+      "height": 390,
+      "initialTransfer": 249972,
+      "images": 309233,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "type": "no-js",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 390,
+      "height": 900,
+      "passed": true
+    },
+    {
+      "type": "text-200-percent",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 1440,
+      "height": 900,
+      "passed": true
+    },
+    {
+      "type": "zoom-400-percent",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 360,
+      "height": 225,
+      "passed": true
+    },
+    {
+      "type": "images-disabled",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [
+        "http://127.0.0.1:8775/volparossa-code/assets/logo.png",
+        "http://127.0.0.1:8775/volparossa-code/assets/code/hero-loom-mobile-480.avif",
+        "http://127.0.0.1:8775/volparossa-code/assets/upstream/code-screen.webp",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "http://127.0.0.1:8775/volparossa-code/assets/logo.png"
+      ],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 390,
+      "height": 900,
+      "passed": true
+    },
+    {
+      "engine": "firefox",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 390,
+      "height": 844,
+      "initialTransfer": 232938,
+      "images": 262680,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "firefox",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 1440,
+      "height": 900,
+      "initialTransfer": 301887,
+      "images": 525114,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    },
+    {
+      "engine": "firefox",
+      "overflow": false,
+      "headerOverlap": false,
+      "missingImages": [],
+      "steps": [
+        "Set the scope",
+        "Understand the code",
+        "Approve the action",
+        "Check the result"
+      ],
+      "width": 2560,
+      "height": 1440,
+      "initialTransfer": 339825,
+      "images": 607684,
+      "fonts": 47140,
+      "errors": [],
+      "failures": [],
+      "external": []
+    }
+  ],
+  "accessibility": [
+    {
+      "width": 390,
+      "violations": []
+    },
+    {
+      "width": 1440,
+      "violations": []
+    }
+  ]
+}

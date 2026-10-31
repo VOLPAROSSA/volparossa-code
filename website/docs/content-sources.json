@@ -1,0 +1,151 @@
+{
+  "reviewed_on": "2026-10-31",
+  "scope": "Repository documentation and website assets; no new runtime trial or original trial artifact analysis.",
+  "sources": [
+    {
+      "repository": "VOLPAROSSA/volparossa-code",
+      "commit": "ce2524532f30fc74dff02d384424f4293ed457d5",
+      "path": "AGENTS.md",
+      "git_blob": "0dc7928693da00f70eccc8fd7a434715793028a8",
+      "sha256": "e6f4f78e8f9f8d8b08724bce4e8169eff2f8f0583bc21f55df971aec52867436"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa-code",
+      "commit": "ce2524532f30fc74dff02d384424f4293ed457d5",
+      "path": "README.md",
+      "git_blob": "5969ef2a7a86d4d8feae64a98c8e1b710841627c",
+      "sha256": "b67223409808dda767a7deef2a4d9027811cdf77f2121a28ce44b4d7743d497d"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa-code",
+      "commit": "ce2524532f30fc74dff02d384424f4293ed457d5",
+      "path": "docs/OPENCODE.md",
+      "git_blob": "0b3f4f81cd3aa0d83c1c09edcd906e7b1b4ac017",
+      "sha256": "7060fa3713100d63aee933c0abc8c9446427a951341e37d66bfeda4f5ecf7601"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa-code",
+      "commit": "ce2524532f30fc74dff02d384424f4293ed457d5",
+      "path": "docs/OWNER_VERIFICATION.md",
+      "git_blob": "a1c0f2fa4f3acc83a0ced1c725b9fb81050b910d",
+      "sha256": "ec311c8e791a5268d28ab9a983cf928d7a444193f3c3ea3116d17d2084496687"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa-code",
+      "commit": "ce2524532f30fc74dff02d384424f4293ed457d5",
+      "path": "THIRD_PARTY_LICENSES.md",
+      "git_blob": "81843acae3d3913ec37f6979148dc2a6b4d9eee4",
+      "sha256": "c47ba7cb436fe6d76cb16ebd40a4edff3be3c8f1f9547ec5c68087d101891dd7"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "README.md",
+      "git_blob": "fe440c06e4173070f6bd529392ea92d41ea82a81",
+      "sha256": "8515cbebfb956226c0197a011fefe9efd25afbbc98ae0a625c140e722dba18f7"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "docs/development/ARCHITECTURE.md",
+      "git_blob": "86f27b4ae96f07f48bdf6aada3cbc479ff284d26",
+      "sha256": "e4b191ecc1e3e96cff205c0cc8ec47816de53dd63e20fbefe36e301ad9f22c8e"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "docs/development/ASSETS.md",
+      "git_blob": "4b614f2f82cd03f53c29e4ed0ea888517fffff80",
+      "sha256": "075f4ff98c0afcce1dbfed0c5b751863a9006a96d5e15a5ed7c7e2d9758821b4"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "docs/development/upstream-sources.json",
+      "git_blob": "2ed6ca57e726af6d26005c26d0c4486e25471787",
+      "sha256": "ade54ca88042e9acba8919c78c255fc858d5f59e9295c0491a3c899e4c6b5d02"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "site/shared-theme.md",
+      "git_blob": "991a38c4da1569d2453a1bb127014911aaaa7261",
+      "sha256": "045cf7714a6daedf0fc4465b3c2009f5be71bea5a59736aefe575d687da2e5cc"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "scripts/export_theme.py",
+      "git_blob": "c4f0916af25dedc06bb4ea517eb0e7caf89d4347",
+      "sha256": "dad8955c2444403641339fd0d08de9cc2a4d0620a42dda906c00c79de1f8a419"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "scripts/shared_navigation.py",
+      "git_blob": "05afcf3bb0b42042614b1c3dee753072b07db111",
+      "sha256": "347668443089b9d93b0c9f99bf255b940f3e98780b4ef262ddd91417e726c621"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "scripts/build_site.py",
+      "git_blob": "078d4605d49f88778cad49709c9cda04bbde7cc6",
+      "sha256": "f378c00bb29b7096d96fc6860ecbe1148e3c44897f8b3ad3b958d5c3d0f0e08a"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "site/data/navigation.json",
+      "git_blob": "d585c09bc18b405dc8487689493d28bc8b490cdb",
+      "sha256": "e20052585b88330ca2cc34b92daeb775b4a45a542b288cf5d6749484c771fb11"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "site/data/projects.json",
+      "git_blob": "fd52a27ecb0b8bf285c5522e1aa8844da55a880d",
+      "sha256": "33fdcbbdf4aef516c49181c9ce2f9731df27be081deada6c4c831cd4ab19b376"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "site/data/applications.json",
+      "git_blob": "695cc9c5de41827ed6ac0e96b28331d4630d3f9b",
+      "sha256": "c46ecd197d1f6c4b3f251ca2e32da7e70180605994817f709d315d9a9c471bab"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "site/pages/docs.html",
+      "git_blob": "c341b7e361357e18e11fa69bad0bfe8ee3643935",
+      "sha256": "79b61424957974f4bf313f3682e103ed65f6421fa90210359732bd91e0356ea5"
+    },
+    {
+      "repository": "VOLPAROSSA/volparossa.github.io",
+      "commit": "8cdbbf675dc83d14bb9490b5222b36c10c5670c2",
+      "path": "assets/upstream/code-screen.webp",
+      "git_blob": "1cee3f0a383d39534b8047b4883bc85b4c6b29fd",
+      "sha256": "29e808243a013a635f42b01e0e7509f2c9d2cb4213509a5546ad81eb17a86703"
+    }
+  ],
+  "trial_bindings": {
+    "local": {
+      "run": "38824828727",
+      "code": "fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef",
+      "core": "7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651"
+    },
+    "public_peer": {
+      "run": "37221727043",
+      "workflow_code": "54af18cc5d30a880e3be298192af150daf01b805",
+      "core": "2a1b4ad347b7d9f12a6a4c2beee40ff8706bd477",
+      "driver": "f27576ebd7e7ded2f1319186f34df87f48e970d7"
+    }
+  },
+  "pages_observation": {
+    "build_type": "workflow",
+    "cname": null,
+    "html_url": "https://volparossa.org/volparossa-code/",
+    "deployment_performed": false
+  }
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "hero-loom",
+    "prompt": "Create a clean cinematic environment illustration for the hero of the VOLPAROSSA Code website, closely following ONLY THE TOP HERO of the selected Loom of Ideas page concept supplied as the first reference. The second reference is material inspiration only; do not copy any words. A magnificent antique walnut and aged brass weaving loom occupies the RIGHT sixty percent. Fine luminous golden threads enter from the upper left and are physically woven into a deep burgundy textile with an elegant golden fox HEAD in profile and sweeping neck fur, embroidered with gold botanical flourishes. The fox is woven embroidery within the fabric, never a live animal. Match the selected concept's intricate gears, tall fine heddles, slanted front cloth panel and enlarged fox head on lower right. Warm amber workshop lighting, believable fine mechanical details, rich tactile cloth, restrained depth of field. Keep LEFT forty percent dark, calm and nearly empty for a separate HTML headline and buttons; threads remain in upper third. Leave clear dark space along the top for navigation. Mature, refined, intimate craftsmanship, walnut, aged brass, sumptuous deep wine cloth. No text, no letters, no numbers, no logos, no interface, no borders, no buttons, no watermark, no mockup, no multiple panels. One very wide landscape scene, ideally 2400x1200 or native wide ratio 2:1. Show the whole important loom and fox head with safe margins for a wide hero crop.",
+    "generated_file": "exec-0f472ddb-b9a3-4eb2-909d-7ff785ca0244.png",
+    "generated_on": "2026-10-31",
+    "tool": "OpenAI image generation",
+    "references": [
+      "01-code-loom-SELECTED.png",
+      "06-loom-inspiration.png"
+    ],
+    "master": "hero-loom.png",
+    "transparent": false
+  },
+  {
+    "id": "workflow-bench",
+    "prompt": "Create ONE wide clean panoramic illustration of an antique coding workshop workbench matching the THIRD DARK WORKFLOW SECTION of the first supplied selected page concept. Match the walnut, aged brass, burgundy and warm gold materials and fox embroidery of the second supplied hero. Four clearly separated equally spaced still-life groups run from LEFT to RIGHT, each fully inside its own quarter of the image: (1) a blank ivory task note and small thread spool; (2) an open technical sketchbook with only abstract non-letter geometric marks and a prominent magnifying glass; (3) a plain folded blank proposal sheet with a burgundy wax seal and a brass shuttle; (4) a finished small burgundy textile showing the elegant embroidered golden fox HEAD and neck from the hero. Restrained fine golden threads physically connect groups across the tabletop. Dark softly lit walnut and burgundy workshop background, rich tactile wood, cinematic amber light. Compose objects in the lower two-thirds and keep the upper third dark and calm for separate HTML captions. FOUR objects groups equally spaced, no group crossing its quarter boundaries, no missing magnifier. Wide panorama aspect 3:1 ideally 2400x800, use native wide resolution. No writing, no words, no code characters, no numbers, no ticks, no icons, no logos, no interface, no watermark, no collage. Just one coherent continuous tabletop, no extra groups.",
+    "generated_file": "exec-73c35d77-aa37-4cdd-a73f-c674c3ed4405.png",
+    "generated_on": "2026-10-31",
+    "tool": "OpenAI image generation",
+    "references": [
+      "01-code-loom-SELECTED.png",
+      "hero-loom.png"
+    ],
+    "master": "workflow-bench.png",
+    "transparent": false
+  },
+  {
+    "id": "cooperation-loom",
+    "prompt": "Create ONE clean panoramic illustration closely matching the LIGHT COOPERATION SECTION of the first supplied VOLPAROSSA Loom of Ideas page concept, using the SAME elegant gold fox HEAD embroidered in deep burgundy cloth, aged brass and walnut loom as the second supplied hero. Bright warm ivory workshop backdrop, THREE distinct small workstations arranged left to right across the left THREE QUARTERS, and one SHARED loom and draped fox tapestry in the right quarter. First station: open reference sketchbook with no letters, brass instrument. Second station: burgundy thread spool and weaving shuttle next to blank paper. Third station: tidy inspection book and large brass magnifying glass. Each station sends its own fine golden threads across the wood towards the single loom on the right. Slightly elevated viewpoint, warm daylight, tactile pale plaster, walnut and fine metal. Match concept composition: three stations prominent and readable, loom output fox on far right. Soft ivory negative space in upper third for separate HTML heading. Landscape panorama ratio about 2.6:1, ideally 2400x920. No words, no writing, no code, no numbers, no logos, no UI, no arrows, no checkmarks, no security badges, no watermark, no separate panels.",
+    "generated_file": "exec-098b1f5e-555b-4086-9ec6-8be1656d5a95.png",
+    "generated_on": "2026-10-31",
+    "tool": "OpenAI image generation",
+    "references": [
+      "01-code-loom-SELECTED.png",
+      "hero-loom.png"
+    ],
+    "master": "cooperation-loom.png",
+    "transparent": false
+  },
+  {
+    "id": "woven-fox-detail",
+    "prompt": "Create ONE cinematic panoramic CLOSE-UP of the finished burgundy and gold FOX TAPESTRY, matching the LAST CTA SECTION of the first supplied selected page concept and the EXACT fox head profile, sweeping embroidered neck fur, gold botanical branches and burgundy textile in the second supplied hero. RIGHT half features a close tactile view of the same fox HEAD woven into cloth, graceful folds and tiny gold stitches catching warm amber evening light. A small antique brass weaving shuttle, walnut spool and one loose gold thread add restrained depth. LEFT half must be quiet dark burgundy negative space with subtle blurred cloth for separate real HTML call to action. No loom needed in this close-up. Extremely wide horizontal ratio 3:1, ideally 2400x800. Keep fox head whole inside right half, looking left, same sophisticated embroidery craftsmanship. No text, numbers, logos, UI, buttons, watermark, frame, webpage or collage.",
+    "generated_file": "exec-cb0b1505-1446-4d42-baa6-4fd3eb4d250d.png",
+    "generated_on": "2026-10-31",
+    "tool": "OpenAI image generation",
+    "references": [
+      "01-code-loom-SELECTED.png",
+      "hero-loom.png"
+    ],
+    "master": "woven-fox-detail.png",
+    "transparent": false
+  }
+]
