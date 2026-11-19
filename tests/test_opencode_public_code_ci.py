@@ -107,6 +107,14 @@ class Contracts(unittest.TestCase):
                     CI.gate()
                 self.assertEqual(validate.call_count, 1)
 
+    def test_planner_requires_workbench_and_uses_its_distinct_immutable_sources(self):
+        with patch.dict(os.environ, {'VOLPAROSSA_PUBLIC_PLANNER':'true','VOLPAROSSA_PUBLIC_WORKBENCH':'false'}):
+            with self.assertRaises(ValueError):
+                CI.driver_source()
+        with patch.dict(os.environ, {'VOLPAROSSA_PUBLIC_PLANNER':'true','VOLPAROSSA_PUBLIC_WORKBENCH':'true'}):
+            self.assertEqual(CI.driver_source(), (CI.PLANNER_DRIVER, CI.PLANNER_TREE))
+            self.assertEqual(CI.core_pin(), CI.PLANNER_CORE)
+
     def test_export_uses_closed_fixed_producers_and_keeps_raw_logs_out(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(CI, 'BUILD', Path(directory)), \
                 patch.object(CI, 'ci', return_value=SimpleNamespace(guard=Mock())):
@@ -143,7 +151,7 @@ class Contracts(unittest.TestCase):
                 CI.copy_receipt(source, root / 'result')
             self.assertFalse((root / 'result').exists())
 
-    def test_workflow_has_one_explicit_core_runner_and_no_local_model_or_opencode_build(self):
+    def test_workflow_has_one_core_runner_and_only_builds_opencode_for_the_explicit_planner(self):
         workflow = (ROOT / '.github/workflows/opencode-public-code.yml').read_text()
         for fragment in ('workflow_dispatch:', 'expected_code_sha:', 'cancel-in-progress: false',
                 'persist-credentials: false', 'contents: read', 'timeout-minutes: 120',
@@ -151,7 +159,11 @@ class Contracts(unittest.TestCase):
                 'public_code_ci.py gate', 'build/public-code-receipts/*.json'):
             self.assertIn(fragment, workflow)
         self.assertEqual(workflow.count('run-alpha-topology-vm.sh'), 1)
-        for forbidden in ('opencode_ci_build.sh', 'smoke_opencode_inference.py execute', 'build_opencode_runtime.py',
+        build_step = workflow.split('- name: Source-build OpenCode', 1)[1].split('- name:', 1)[0]
+        self.assertIn('if: inputs.local_opencode_planner', build_step)
+        self.assertIn('bash scripts/opencode_ci_build.sh', build_step)
+        self.assertEqual(workflow.count('bash scripts/opencode_ci_build.sh'), 1)
+        for forbidden in ('smoke_opencode_inference.py execute', 'build_opencode_runtime.py',
                           'runtime/opencode', 'ACTIONS_RUNTIME_TOKEN', 'curl |', 'pull_request:'):
             self.assertNotIn(forbidden, workflow)
         self.assertLess(workflow.index('public_code_ci.py source'), workflow.index('Prepare the signed Ubuntu archive'))

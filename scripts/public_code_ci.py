@@ -24,6 +24,9 @@ DRIVER_TREE = '14268639d341eeaaba2e9371d2d9c6537fce57ff'
 WORKBENCH_CORE = '06b12d06b4ab0b1db878385398b05a5c6aead105'
 WORKBENCH_DRIVER = 'ab7dd3dea1ab6328ff3236dc10c6df0155c62820'
 WORKBENCH_TREE = 'd9c788121391fb008ae784d2fb648cf0c04cd952'
+PLANNER_CORE = 'ef3a444c3ad8c68356843f5698778e97b5acc14e'
+PLANNER_DRIVER = '1b1cd335326b66eb565e6ceb8005fa7b385857d1'
+PLANNER_TREE = '9033c12ae390de9ca81fd26e75362e1c430c8672'
 SCENARIO = 'agent-cooperative-code-proposal'
 MODEL = 'qwen3-0.6b-v1'
 RECEIPTS = ('public-code-source.json', 'public-code-inputs.json', 'public-code-runner.json')
@@ -51,12 +54,20 @@ def workbench_requested():
     return value == 'true'
 
 
+def planner_requested():
+    value = os.environ.get('VOLPAROSSA_PUBLIC_PLANNER', 'false')
+    require(value in ('true', 'false') and (value == 'false' or workbench_requested()), 'planner_requires_workbench')
+    return value == 'true'
+
+
 def driver_source():
+    if planner_requested():
+        return PLANNER_DRIVER, PLANNER_TREE
     return (WORKBENCH_DRIVER, WORKBENCH_TREE) if workbench_requested() else (DRIVER, DRIVER_TREE)
 
 
 def core_pin():
-    revision = WORKBENCH_CORE if workbench_requested() else CORE
+    revision = PLANNER_CORE if planner_requested() else WORKBENCH_CORE if workbench_requested() else CORE
     require(isinstance(revision, str) and re.fullmatch('[0-9a-f]{40}', revision), 'core_fixture_not_pinned')
     return revision
 
@@ -96,7 +107,7 @@ def sources(expected):
     require(shared.run(['git', '-C', ROOT, 'rev-parse', driver + '^{tree}'], text=True).stdout.strip() == tree,
             'driver_source_tree')
     checked = fixture()
-    key = 'WORKBENCH_REVISION' if workbench_requested() else 'CODE_REVISION'
+    key = 'PLANNER_REVISION' if planner_requested() else 'WORKBENCH_REVISION' if workbench_requested() else 'CODE_REVISION'
     require(checked[key] == driver and checked['PROFILE'] == MODEL, 'core_driver_binding')
     value = dict(version=1, workflow_code_revision=expected,
         workflow_code_tree=shared.run(['git', '-C', ROOT, 'rev-parse', 'HEAD^{tree}'], text=True).stdout.strip(),
@@ -106,6 +117,8 @@ def sources(expected):
         native_editor_ui_proven=False, private_opencode_planner_proven=False, actual_execution_proven=False)
     if workbench_requested():
         value['requested_frontend'] = 'vscodium'
+    if planner_requested():
+        value['requested_planner'] = 'local_opencode'
     record('public-code-source.json', value)
     return value
 
@@ -137,12 +150,14 @@ def pack():
     source = json.loads((BUILD / 'public-code-source.json').read_bytes())
     require(source['workflow_code_revision'] == os.environ.get('GITHUB_SHA') and source['core_revision'] == core_pin()
         and source['driver_code_revision'] == driver and source['driver_code_tree'] == tree
-        and (source.get('requested_frontend') == 'vscodium') == workbench_requested(), 'input_source')
+        and (source.get('requested_frontend') == 'vscodium') == workbench_requested() and
+        (source.get('requested_planner') == 'local_opencode') == planner_requested(), 'input_source')
     capture = module(ROOT / 'scripts/pack_opencode_cooperation.py', 'public_ci_pack')
     bundle = BUILD / 'public-code-proposal-inputs-ci'
     value = capture.pack_proposal(argparse.Namespace(code_revision=driver, vscodium_workbench=workbench_requested(),
         editor_deb=BUILD / 'public-code-editor.deb' if workbench_requested() else None,
-        node=BUILD / 'public-code-node/bin/node', output=bundle))
+        node=BUILD / 'public-code-node/bin/node', output=bundle, **(
+            dict(local_planner=True, build_report=BUILD / 'opencode-runtime/build-report.json') if planner_requested() else {})))
     manifest = json.loads((bundle / 'INPUTS.json').read_bytes())
     fixture()['bundle_manifest'](manifest)
     record('public-code-inputs.json', dict(version=1, core_revision=core_pin(), driver_code_revision=driver,
@@ -169,7 +184,8 @@ def gate():
     value = json.loads(report.read_bytes())
     fixture()['check_report'](value, core_pin())
     if workbench_requested():
-        require(value['evidence']['driver']['kind'] == 'vscodium-public-peer-workbench'
+        expected_kind = 'vscodium-opencode-public-peer-workbench' if planner_requested() else 'vscodium-public-peer-workbench'
+        require(value['evidence']['driver']['kind'] == expected_kind
                 and value['evidence']['provision']['manifest']['frontend'] == 'vscodium', 'native_workbench_proof')
 
 

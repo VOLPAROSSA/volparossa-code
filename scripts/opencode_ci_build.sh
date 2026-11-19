@@ -4,8 +4,13 @@
 set -euo pipefail
 test "$#" -eq 0
 python3 -B scripts/opencode_ci.py guard
-core="$PWD/build/ci-core"
-selected_core=$(python3 -B scripts/opencode_ci.py select --model-profile "${MODEL_PROFILE:-qwen3-0.6b-v1}" --inference-backend "${INFERENCE_BACKEND:-torch}")
+if test "${VOLPAROSSA_PUBLIC_PLANNER:-false}" = true; then
+  core="$PWD/build/public-code-core"
+  selected_core=$(python3 -B scripts/public_code_ci.py select)
+else
+  core="$PWD/build/ci-core"
+  selected_core=$(python3 -B scripts/opencode_ci.py select --model-profile "${MODEL_PROFILE:-qwen3-0.6b-v1}" --inference-backend "${INFERENCE_BACKEND:-torch}")
+fi
 test "$(git -C "$core" rev-parse HEAD)" = "${selected_core#core_revision=}"
 profile="$core/tests/integration/native-coding-bwrap.apparmor"
 test "$(sha256sum "$profile" | cut -d ' ' -f 1)" = 3f3fefdfc6fe46e882af9b803ddcddd6691083e434b26f5fb244ceddf05b6794
