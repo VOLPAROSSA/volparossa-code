@@ -82,9 +82,7 @@ def blobs(revision, sources=SOURCES):
     return result
 
 
-def pack(args):
-    output_path(args.output)
-    source = blobs(args.code_revision)
+def built_runtime(args, source):
     pin = json.loads(source['code/third_party/opencode.json'])
     require(pin['commit'] == PIN and pin['tag'] == 'v1.18.34'
             and pin['local_patch'] == 'patches/opencode-no-runtime-installs.patch', 'source_runtime_pin')
@@ -99,6 +97,13 @@ def pack(args):
             and build['license_sha256'] == sha(source['code/third_party/opencode-LICENSE.txt'])
             and build['binary_bytes'] == binary_info.st_size
             and build['binary_sha256'] == digest(binary) and os.access(binary, os.X_OK), 'source_build_binding')
+    return build_raw, binary, build
+
+
+def pack(args):
+    output_path(args.output)
+    source = blobs(args.code_revision)
+    build_raw, binary, build = built_runtime(args, source)
     node_license = args.node.parent.parent / 'LICENSE'
     for candidate, expected in ((args.node, NODE), (node_license, NODE_LICENSE)):
         require(owned_file(candidate, 200 * 1024**2).st_size == expected[0]
@@ -119,6 +124,10 @@ def pack_proposal(args):
     if not workbench and args.code_revision == 'f27576ebd7e7ded2f1319186f34df87f48e970d7':
         # Its private session lived in private-conversation.cjs at this immutable revision.
         sources = tuple(name for name in sources if name != 'src/private-native-session.cjs')
+    planner = getattr(args, 'local_planner', False)
+    if planner:
+        require(workbench and args.build_report is not None, 'planner_runtime_input')
+        sources = (*sources, 'scripts/public_peer_planner_ui.cjs')
     source = blobs(args.code_revision, sources)
     node_license = args.node.parent.parent / 'LICENSE'
     for candidate, expected in ((args.node, NODE), (node_license, NODE_LICENSE)):
@@ -135,6 +144,12 @@ def pack_proposal(args):
                 and digest(package) == editor['DEB_SHA'], 'exact_vscodium_release')
         inputs['runtime/editor.deb'] = (package, editor['DEB_SHA'])
         manifest.update(version=2, frontend='vscodium')
+    if planner:
+        raw, binary, build = built_runtime(args, source)
+        source['runtime/build-report.json'] = raw
+        inputs['runtime/opencode'] = (binary, build['binary_sha256'])
+        manifest.update(version=3, planner='local_opencode', opencode_revision=PIN,
+                        opencode_binary_sha256=build['binary_sha256'])
     return capture(args, source, inputs, manifest)
 
 
@@ -173,6 +188,7 @@ def main(argv=None):
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--public-code-proposal', action='store_true')
     parser.add_argument('--vscodium-workbench', action='store_true', help='Capture the public proposal editor and its rendered UI driver.')
+    parser.add_argument('--local-planner', action='store_true', help='Include the source-built OpenCode runtime for the enrolled workbench task.')
     parser.add_argument('--code-revision')
     for name in ('node', 'build-report', 'output', 'editor-deb'):
         parser.add_argument('--' + name, type=Path)
@@ -187,7 +203,8 @@ def main(argv=None):
             'explicit_capture_inputs')
     require(args.vscodium_workbench == (args.editor_deb is not None), 'workbench_release_input')
     if args.public_code_proposal:
-        require(args.build_report is None, 'proposal_has_no_local_planner')
+        require((args.build_report is not None) == args.local_planner, 'planner_runtime_input')
+    require(not args.local_planner or args.vscodium_workbench, 'planner_requires_workbench')
     print(json.dumps(pack_proposal(args) if args.public_code_proposal else pack(args)))
 
 
