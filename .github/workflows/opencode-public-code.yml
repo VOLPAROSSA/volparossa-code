@@ -13,6 +13,12 @@ on:
         type: boolean
         required: false
         default: false
+      local_opencode_planner:
+        description: Run the private local OpenCode model and let it choose the enrolled public source tool in VSCodium
+        type: boolean
+        required: false
+        default: false
+
 
 permissions:
   contents: read
@@ -28,6 +34,7 @@ jobs:
     env:
       EXPECTED_CODE_SHA: ${{ inputs.expected_code_sha }}
       VOLPAROSSA_PUBLIC_WORKBENCH: ${{ inputs.vscodium_workbench && 'true' || 'false' }}
+      VOLPAROSSA_PUBLIC_PLANNER: ${{ inputs.local_opencode_planner && 'true' || 'false' }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,6 +69,15 @@ jobs:
           case "$kvm_gid" in ''|0|0*|*[!0-9]*) exit 1 ;; esac
           test "$(getent group "$kvm_gid" | awk -F: -v gid="$kvm_gid" '$1 == "kvm" && $3 == gid {print $1 ":" $3}')" = "kvm:$kvm_gid"
           printf 'VOLPAROSSA_KVM_GID=%s\n' "$kvm_gid" >>"$GITHUB_ENV"
+      - name: Source-build OpenCode for the selected local planner
+        if: inputs.local_opencode_planner
+        timeout-minutes: 55
+        run: |
+          set -euo pipefail
+          python3 -B scripts/public_code_ci.py guard
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -c '${{ steps.ubuntu_archive.outputs.config }}' install --yes --no-install-recommends bubblewrap apparmor
+          bash scripts/opencode_ci_build.sh
+          jq -e '.ci_bwrap_cleanup_complete and .source_build_exit_status == 0' build/ci-build-cleanup.json
       - name: Build the exact core-owned mqvpn and xquic runtime
         working-directory: build/public-code-core
         run: |

@@ -232,9 +232,12 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
       finally { nativeActive = undefined; }
     }
     const tools = result.taskDiagnostics?.tools;
+    const peer = delegation?.codeReceipt;
     await show('VOLPAROSSA — OpenCode turn finished\n' +
       (tools ? `Completed native tools: reads ${tools.read.completed}, edits ${tools.edit.completed}, shell commands ${tools.bash.completed}.\n` : '') +
       (runtime.modelProfile ? `Model: ${runtime.modelProfile}\n` : '') +
+      (peer ? `Core request: ${peer.coreTaskId}\nPeer job: ${peer.peerJobId}\nPeer report SHA-256: ${peer.peerReportSha256}\n` +
+        `Peer proposal SHA-256: ${peer.outputSha256}\nPeer proposal complete: ${peer.complete ? 'yes' : 'no'}\n` : '') +
       'Overall task correctness is not independently verified by this frontend. Review your changes and tool results.\n' +
       (result.verification ? `Owner-selected check: ${result.verification.status}; checks: ${result.verification.checks}; ` +
         `continuations: ${result.verification.continuations}. This describes only the selected check, not general correctness.\n` : '') +

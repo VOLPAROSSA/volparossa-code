@@ -42,6 +42,13 @@ async function startCooperativeTool({socketPath, snapshot}, hooks = {}) {
           observations.submitted++;
           const value = await delegate.execute({tool_call_id: request.call_id, snapshot, signal: controller.signal});
           // Delegate validates the original result and awaits terminal execution cleanup.
+          if (value.result?.operation === 'public_code_proposal') {
+            const proposal = require('./cooperative-delegation.cjs').validatedCodeProposal(snapshot, value);
+            observations.codeReceipt = Object.freeze({
+              coreTaskId: proposal.coreTaskId, peerJobId: proposal.peerJobId, peerReportSha256: proposal.peerReportSha256,
+              complete: proposal.complete, outputSha256: require('node:crypto').createHash('sha256').update(proposal.text).digest('hex'),
+            });
+          }
           observations.completed++; terminal = true;
           send({type: 'result', value});
         } catch (error) {
