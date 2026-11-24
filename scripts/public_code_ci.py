@@ -24,7 +24,7 @@ DRIVER_TREE = '14268639d341eeaaba2e9371d2d9c6537fce57ff'
 WORKBENCH_CORE = '06b12d06b4ab0b1db878385398b05a5c6aead105'
 WORKBENCH_DRIVER = 'ab7dd3dea1ab6328ff3236dc10c6df0155c62820'
 WORKBENCH_TREE = 'd9c788121391fb008ae784d2fb648cf0c04cd952'
-PLANNER_CORE = 'dadae8d4107870fa83ecb0f7c0989a16e568db4d'
+PLANNER_CORE = '3016b05afc7001762c727cdbd4c8a7b92bbf8123'
 PLANNER_DRIVER = '0b9d5b897bfe7e2181d0bded92dcbc11442ff41c'
 PLANNER_TREE = 'a9896ba25234882ed8544f3b57c57fd3954ff0c9'
 SCENARIO = 'agent-cooperative-code-proposal'
@@ -93,6 +93,16 @@ def fixture():
     return runpy.run_path(str(core_path() / 'tests/integration/agent-cooperative-code-proposal.py'))
 
 
+def verify_workbench_sources(checked, driver, planner):
+    capture = module(ROOT / 'scripts/pack_opencode_cooperation.py', 'public_ci_pack')
+    blobs = capture.blobs(driver, capture.workbench_sources(planner))
+    actual = {name: dict(bytes=len(data), sha256=capture.sha(data)) for name, data in blobs.items()}
+    pinned = checked['WORKBENCH']['files']
+    if planner:
+        pinned = pinned | checked['PLANNER']['files']
+    require(actual == pinned, 'workbench_source_inventory')
+
+
 def sources(expected):
     shared = ci()
     shared.guard()
@@ -109,6 +119,8 @@ def sources(expected):
     checked = fixture()
     key = 'PLANNER_REVISION' if planner_requested() else 'WORKBENCH_REVISION' if workbench_requested() else 'CODE_REVISION'
     require(checked[key] == driver and checked['PROFILE'] == MODEL, 'core_driver_binding')
+    if workbench_requested():
+        verify_workbench_sources(checked, driver, planner_requested())
     value = dict(version=1, workflow_code_revision=expected,
         workflow_code_tree=shared.run(['git', '-C', ROOT, 'rev-parse', 'HEAD^{tree}'], text=True).stdout.strip(),
         driver_code_revision=driver, driver_code_tree=tree, core_revision=core_pin(),

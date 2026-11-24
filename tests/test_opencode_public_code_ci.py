@@ -65,6 +65,19 @@ class Contracts(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'exact_workflow_source'):
                     CI.sources(CI.DRIVER)
 
+    def test_planner_checks_inherited_and_overridden_editor_source_blobs_before_build(self):
+        capture = CI.module(ROOT / 'scripts/pack_opencode_cooperation.py', 'public_ci_pack')
+        common, changed = b'common', b'planner'
+        actual = {'code/a': common, 'code/b': changed}
+        pin = lambda data: dict(bytes=len(data), sha256=capture.sha(data))
+        catalog = {'WORKBENCH': {'files': {'code/a': pin(common), 'code/b': pin(b'previous')}},
+                   'PLANNER': {'files': {'code/b': pin(changed)}}}
+        with patch.object(CI, 'module', return_value=capture), patch.object(capture, 'blobs', return_value=actual):
+            CI.verify_workbench_sources(catalog, CI.PLANNER_DRIVER, True)
+            del catalog['PLANNER']['files']['code/b']
+            with self.assertRaisesRegex(ValueError, 'workbench_source_inventory'):
+                CI.verify_workbench_sources(catalog, CI.PLANNER_DRIVER, True)
+
     def test_pack_uses_immutable_driver_and_core_validator_not_current_workflow_as_fixture_source(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(CI, 'BUILD', Path(directory)), \
                 patch.object(CI, 'CORE', 'b' * 40), patch.dict(os.environ, {'GITHUB_SHA': 'a' * 40}), \

@@ -117,17 +117,20 @@ def pack(args):
         opencode_binary_sha256=build['binary_sha256'], node_version=NODE_VERSION))
 
 
+def workbench_sources(planner):
+    return WORKBENCH_SOURCES + (('scripts/public_peer_planner_ui.cjs',) if planner else ())
+
+
 def pack_proposal(args):
     output_path(args.output, 'public-code-proposal-inputs')
     workbench = getattr(args, 'vscodium_workbench', False)
-    sources = WORKBENCH_SOURCES if workbench else PROPOSAL_SOURCES
+    planner = getattr(args, 'local_planner', False)
+    sources = workbench_sources(planner) if workbench else PROPOSAL_SOURCES
     if not workbench and args.code_revision == 'f27576ebd7e7ded2f1319186f34df87f48e970d7':
         # Its private session lived in private-conversation.cjs at this immutable revision.
         sources = tuple(name for name in sources if name != 'src/private-native-session.cjs')
-    planner = getattr(args, 'local_planner', False)
     if planner:
         require(workbench and args.build_report is not None, 'planner_runtime_input')
-        sources = (*sources, 'scripts/public_peer_planner_ui.cjs')
     source = blobs(args.code_revision, sources)
     node_license = args.node.parent.parent / 'LICENSE'
     for candidate, expected in ((args.node, NODE), (node_license, NODE_LICENSE)):
