@@ -325,7 +325,7 @@ test('public coding enrollment contains only the exact reviewed excerpt and publ
   const launch = f.events.find(event => event[0] === 'launch');
   assert.deepEqual(launch[2].cooperation, {socketPath: '/run/owner/public.sock', snapshot: opaque});
   assert.equal(launch[1].cooperativeSocketPath, undefined);
-  assert(f.events.find(event => event[0] === 'task')[1].includes('volparossa_delegate_public'));
+  assert.match(f.events.find(event => event[0] === 'task')[1], /owner-enrolled public snapshot by its catalog name/);
   assert(f.documents[0].content.includes('Exact selected code:\nconst answer = 42;'));
   assert(!JSON.stringify(enrollments).includes('Private task'));
   assert.deepEqual(f.errors, []);
