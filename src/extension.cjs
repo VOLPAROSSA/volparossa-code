@@ -9,10 +9,18 @@ function nativeFailure(stage, cause, diagnostics) {
   if (cause?.message === 'opencode_runtime_unavailable_or_cleanup_unconfirmed' &&
       Object.hasOwn(EDITOR_MESSAGES, cause.code)) return cause;
   const errors = diagnostics?.request_errors;
-  if (stage === 'model_task' && errors) {
-    for (const [key, label] of [['request_bound', 'model_request_bound'], ['invalid_conversation', 'model_conversation'],
-      ['socket_unavailable', 'model_transport'], ['disconnected', 'model_transport'], ['execution_failed', 'model_execution']]) {
-      if (Number.isSafeInteger(errors[key]) && errors[key] > 0) {
+  if (stage === 'model_task') {
+    const safeReasons = [['cleanup_unconfirmed', 'model_cleanup'], ['invalid_model_output', 'model_output'],
+      ['tool_choice_not_met', 'model_tool_choice'], ['invalid_conversation', 'model_conversation'],
+      ['request_bound', 'model_request_bound'], ['execution_budget_exceeded', 'model_budget'],
+      ['busy', 'model_busy'], ['cancelled', 'model_cancelled'], ['socket_unavailable', 'model_transport'],
+      ['socket_error', 'model_transport'], ['disconnected', 'model_transport'], ['execution_failed', 'model_execution']];
+    if (cause?.code === 'opencode_task_native_error') stage = 'native_session';
+    if (cause?.code === 'opencode_task_incomplete' || Number.isSafeInteger(diagnostics?.incomplete) && diagnostics.incomplete > 0) {
+      stage = 'model_incomplete';
+    }
+    for (const [key, label] of safeReasons) {
+      if (Number.isSafeInteger(errors?.[key]) && errors[key] > 0) {
         stage = label;
         break;
       }

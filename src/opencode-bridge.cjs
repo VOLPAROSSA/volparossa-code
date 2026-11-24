@@ -23,6 +23,14 @@ const EDITOR_MESSAGES = Object.freeze({
   model_conversation: 'The local provider could not accept the task conversation.',
   model_transport: 'The local provider could not communicate with the compute service.',
   model_execution: 'The local compute service could not execute the model request.',
+  model_output: 'The local model returned output that the coding provider could not use.',
+  model_tool_choice: 'The local model did not return the requested tool call.',
+  model_budget: 'The local model reached its execution budget.',
+  model_busy: 'The local compute service was busy.',
+  model_cancelled: 'The local model request was cancelled.',
+  model_cleanup: 'The local provider could not confirm that its model worker ended cleanly.',
+  model_incomplete: 'The local model ended the turn with an incomplete answer.',
+  native_session: 'The native coding session failed while processing the task.',
   runtime_cleanup: 'OpenCode could not confirm that the coding session ended cleanly.',
 });
 const FAILURE_CODES = new Set([

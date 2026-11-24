@@ -274,6 +274,17 @@ test('native startup and task phases surface only fixed owner messages', async (
   });
   await run.commands.get('volparossaCode.codingTask')();
   assert.deepEqual(run.errors, ['The model request exceeded the local provider limits.']);
+  for (const [diagnostics, reason, expected] of [
+    [{request_errors: {invalid_model_output: 1}}, 'opencode_task_native_error', 'The local model returned output that the coding provider could not use.'],
+    [{incomplete: 1}, 'opencode_task_native_error', 'The local model ended the turn with an incomplete answer.'],
+    [null, secret, 'OpenCode could not complete the coding task.'],
+  ]) {
+    const task = codingFixture();
+    task.native.Runtime.start = async () => ({diagnostics,
+      async run() { throw Object.assign(Error(secret), {code: reason}); }, async close() {}});
+    await task.commands.get('volparossaCode.codingTask')();
+    assert.deepEqual(task.errors, [expected]);
+  }
 });
 
 test('deactivation during native startup closes the new runtime without beginning a task', async () => {
