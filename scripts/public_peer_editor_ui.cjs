@@ -12,6 +12,7 @@ const {trustWorkspace, invokeCommand, until, button, CHECK} = require('./opencod
 const {ORIGINAL, TEST, isolatedCheck} = require('./smoke_opencode_inference.cjs');
 const {QUESTION} = require('./smoke_public_code_proposal.cjs');
 const {capturePublicCodeFile} = require('../src/public-code-file.cjs');
+const {STARTUP_MESSAGES} = require('../src/opencode-bridge.cjs');
 const LABEL = 'VOLPAROSSA: Propose a Replacement for a Public Source File';
 const LICENSE = 'GPL-3.0-only';
 const OWNER = '/workbench';
@@ -45,7 +46,9 @@ const STATE = `(() => {
   const core = result?.find(line => /^Core request: [0-9a-f]{32}$/.test(line));
   const job = result?.find(line => /^Peer job: [0-9a-f]{32}$/.test(line));
   const peer = result?.find(line => /^Peer report SHA-256: [0-9a-f]{64}$/.test(line));
-  return {quick:visible(input)?center(input):null,title:text(quick?.querySelector('.quick-input-title')),
+  const notifications = [...document.querySelectorAll('.notification-list-item-message')].filter(visible).map(text);
+  const startupFailure = Object.entries(${JSON.stringify(STARTUP_MESSAGES)}).find(([,label])=>notifications.includes(label))?.[0];
+  return {startupFailure,quick:visible(input)?center(input):null,title:text(quick?.querySelector('.quick-input-title')),
     license:choice.length===1?center(choice[0]):null, file:files.length===1?center(files[0]):null, dialogs,
     source:documents.some(hasSource), preview, plannerPreview, applied:!!result,
     plannerModel:plannerResult?.includes('Model: qwen3-0.6b-v1'),
@@ -62,7 +65,10 @@ const STATE = `(() => {
       .some(e=>text(e).includes('VOLPAROSSA could not complete this operation.'))};
 })()`;
 function wait(cdp, predicate, seconds, failure) {
-  return until(cdp, STATE, predicate, Date.now() + seconds * 1000, failure);
+  return until(cdp, STATE, state => {
+    if (state.startupFailure) throw Error(state.startupFailure);
+    return predicate(state);
+  }, Date.now() + seconds * 1000, failure);
 }
 
 function containsAll(message, fragments) {
@@ -224,7 +230,7 @@ async function runInWorkspace(receipt, planner) {
     evidence.editor_joined = true;
     evidence.phase = 'complete';
   } catch(error) {
-    const allowed=new Set(['baseline','workbench','file_picker','selected_file','public_task','license','publication_preview',
+    const allowed=new Set([...Object.keys(STARTUP_MESSAGES),'editor_failed','baseline','workbench','file_picker','selected_file','public_task','license','publication_preview',
       'planner_start','planner_result','planner_action','publication_scope','original_tests','peer_operation','owner_result','edit_scope','check_scope','dialog_closed','peer_deadline',
       'replacement_binding','independent_check','editor_exit','trust_banner','trust_page','trust_grant','trust_close']);
     evidence.failure=allowed.has(error.message)?error.message:'workbench_failed';

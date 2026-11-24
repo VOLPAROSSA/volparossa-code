@@ -86,6 +86,17 @@ if(frame.type==='run') {
   await Promise.all([runtime.close(), runtime.close()]); assert.equal(process.exitCode, 0);
   await assert.rejects(runtime.run('Again'), /opencode_runtime/);
 });
+test('startup diagnostics preserve only recognized fixed stages', async t => {
+  for (const [ready, code] of [
+    [{type: 'startup_failed', stage: 'private_handshake'}, 'private_handshake'],
+    [{type: 'startup_failed', stage: 'private detail'}, 'runtime_failed'],
+    [{type: 'startup_failed', stage: 'native_server', detail: 'private detail'}, 'runtime_failed'],
+  ]) {
+    const process = child(t, script('', {ready}));
+    await assert.rejects(ownedOpenCode(process, {startupMs: 1000, closeMs: 1000}), error => error.code === code);
+  }
+});
+
 test('readiness accepts only closed core-bound model identities and never guesses 4B', async t => {
   for (const modelProfile of ['qwen3-0.6b-v1', 'qwen3-4b-instruct-2507-v1', null, 'unreviewed-model']) {
     const process = child(t, script('', {ready: {...READY, modelProfile}}));

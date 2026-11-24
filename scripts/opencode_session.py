@@ -158,4 +158,6 @@ if __name__ == '__main__':
     try:
         main()
     except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        stage = 'runtime_namespace' if sys.argv[1:2] == ['--inside'] else 'runtime_inputs'
+        print(json.dumps({'type': 'startup_failed', 'stage': stage}), flush=True)
         sys.exit(1)

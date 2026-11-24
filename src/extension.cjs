@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 'use strict';
+const {STARTUP_MESSAGES} = require('./opencode-bridge.cjs');
 const {PrivateCompute} = require('./private-compute.cjs');
 const {verificationSettings} = require('./editor-verification.cjs');
 
@@ -55,6 +56,10 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
       const safe = ['Select a small code excerpt', 'The current private compute',
         'This development integration', 'Set the absolute', 'Configure the native runtime',
         'Open a local workspace', 'Configure the public cooperative', 'Configure the owner verification'].some(prefix => local?.startsWith(prefix));
+      if (local === 'opencode_runtime_unavailable_or_cleanup_unconfirmed' && Object.hasOwn(STARTUP_MESSAGES, error.code)) {
+        await vscode.window.showErrorMessage(STARTUP_MESSAGES[error.code]);
+        return;
+      }
       await vscode.window.showErrorMessage(safe ? local : 'VOLPAROSSA could not complete this operation. No automatic cloud or public-peer fallback is used. An explicitly authorized public task may already have shared its enrolled data.');
     } finally { busy = false; }
   };

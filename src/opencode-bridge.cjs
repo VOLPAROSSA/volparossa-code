@@ -5,6 +5,15 @@ const LIMIT = 524288;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 // Closed lifecycle facts only. Never copy an exception message, model text,
 // tool arguments, session ID or path into a diagnostic frame.
+const STARTUP_MESSAGES = Object.freeze({
+  runtime_inputs: 'OpenCode could not verify the selected runtime inputs.',
+  runtime_namespace: 'OpenCode could not start the isolated coding process.',
+  private_handshake: 'OpenCode could not negotiate capabilities with the private compute service.',
+  private_provider: 'OpenCode could not start the local model provider.',
+  public_proxy: 'OpenCode could not prepare the enrolled public task connection.',
+  runtime_state: 'OpenCode could not prepare its isolated session directories.',
+  native_server: 'OpenCode could not start its native server in the isolated workspace.',
+});
 const FAILURE_CODES = new Set([
   'task_or_runtime_failed', 'runtime_failed', 'cancelled_or_deadline',
   ...['scope', 'event_bound', 'event', 'connection', 'session_bound', 'permission_schema',
@@ -107,7 +116,7 @@ function readFrames(stream, receive, fail) {
   stream.on('data', data); stream.on('error', bad); stream.on('end', end);
   return () => { stream.off('data', data); stream.off('error', bad); stream.off('end', end); pending = Buffer.alloc(0); };
 }
-module.exports = {readFrames, writeFrame, record, isFailureCode, taskFailure,
+module.exports = {STARTUP_MESSAGES, readFrames, writeFrame, record, isFailureCode, taskFailure,
   validVerification, validVerificationSummary,
   PROVIDER_ERRORS, emptyProviderDiagnostic, validProviderDiagnostic,
   TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic, validTaskDiagnostic};
