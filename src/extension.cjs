@@ -1,8 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
 'use strict';
-const {STARTUP_MESSAGES} = require('./opencode-bridge.cjs');
+const {EDITOR_MESSAGES} = require('./opencode-bridge.cjs');
 const {PrivateCompute} = require('./private-compute.cjs');
 const {verificationSettings} = require('./editor-verification.cjs');
+
+function nativeFailure(stage, cause, diagnostics) {
+  if (cause?.message === 'This development integration requires a trusted local workspace.') return cause;
+  if (cause?.message === 'opencode_runtime_unavailable_or_cleanup_unconfirmed' &&
+      Object.hasOwn(EDITOR_MESSAGES, cause.code)) return cause;
+  const errors = diagnostics?.request_errors;
+  if (stage === 'model_task' && errors) {
+    for (const [key, label] of [['request_bound', 'model_request_bound'], ['invalid_conversation', 'model_conversation'],
+      ['socket_unavailable', 'model_transport'], ['disconnected', 'model_transport'], ['execution_failed', 'model_execution']]) {
+      if (Number.isSafeInteger(errors[key]) && errors[key] > 0) {
+        stage = label;
+        break;
+      }
+    }
+  }
+  return Object.assign(Error('opencode_runtime_unavailable_or_cleanup_unconfirmed'), {code: stage});
+}
 
 const byteLength = text => Buffer.byteLength(text, 'utf8');
 function selectionInput(editor) {
@@ -56,8 +73,8 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
       const safe = ['Select a small code excerpt', 'The current private compute',
         'This development integration', 'Set the absolute', 'Configure the native runtime',
         'Open a local workspace', 'Configure the public cooperative', 'Configure the owner verification'].some(prefix => local?.startsWith(prefix));
-      if (local === 'opencode_runtime_unavailable_or_cleanup_unconfirmed' && Object.hasOwn(STARTUP_MESSAGES, error.code)) {
-        await vscode.window.showErrorMessage(STARTUP_MESSAGES[error.code]);
+      if (local === 'opencode_runtime_unavailable_or_cleanup_unconfirmed' && Object.hasOwn(EDITOR_MESSAGES, error.code)) {
+        await vscode.window.showErrorMessage(EDITOR_MESSAGES[error.code]);
         return;
       }
       await vscode.window.showErrorMessage(safe ? local : 'VOLPAROSSA could not complete this operation. No automatic cloud or public-peer fallback is used. An explicitly authorized public task may already have shared its enrolled data.');
@@ -178,8 +195,8 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
       {modal: true}, cooperation ? 'Start coding with public delegation' : 'Start local coding');
     if (confirmed !== (cooperation ? 'Start coding with public delegation' : 'Start local coding')) return;
     trusted();
-    const Runtime = native.Runtime ?? require('./opencode-runtime.cjs').OpenCodeRuntime;
     let runtime, result, delegation;
+    let stage = 'owner_verifier';
     try {
       const verify = verification ? (native.createWorkspaceVerifier ?? require('./workspace-verifier.cjs').createWorkspaceVerifier)({
         workspace: folder.uri.fsPath, executable: verification.executable, args: verification.args,
@@ -195,8 +212,11 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
           return decision === 'Run check once';
         },
       }) : undefined;
+      stage = 'runtime_preparation';
+      const Runtime = native.Runtime ?? require('./opencode-runtime.cjs').OpenCodeRuntime;
       runtime = await Runtime.start({...runtimeConfig, socketPath: socket},
         {workspace: folder.uri.fsPath, ...(cooperation ? {cooperation} : {})});
+      stage = 'model_task';
       delegation = runtime.publicDelegation;
       trusted();
       result = await vscode.window.withProgress({location: vscode.ProgressLocation.Notification,
@@ -232,8 +252,11 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
           onStatus: event => progress.report({message: `${event.commands} native command(s) observed; last ${event.status}.`})}); }
         finally { listener.dispose(); }
       });
+    } catch (error) {
+      throw nativeFailure(stage, error, runtime?.diagnostics);
     } finally {
       try { if (runtime) await runtime.close(); }
+      catch (error) { throw nativeFailure('runtime_cleanup', error); }
       finally { nativeActive = undefined; }
     }
     const tools = result.taskDiagnostics?.tools;

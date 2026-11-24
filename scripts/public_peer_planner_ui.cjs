@@ -45,11 +45,12 @@ async function exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CH
     && start.message.includes('The model may invoke it once')
     && start.message.includes('Owner-selected check: ' + JSON.stringify(CHECK)), 'planner_start');
   await button(cdp, start, 'Start coding with public delegation');
-  evidence.local_planner_started = true;
+  evidence.owner_planner_approved = true;
   let previous = start.message;
   const deadline = Date.now() + 2400000;
   while (Date.now() < deadline) {
     ui = await wait(cdp, () => true, 3, 'peer_operation');
+    if (ui.plannerRunning || ui.plannerModel) evidence.local_planner_started = true;
     assert.ok(!ui.failed && ui.dialogs.length <= 1, 'peer_operation');
     if (ui.applied) {
       assert.ok(ui.plannerModel && ui.submitted && ui.complete && ui.plannerCheck && ui.output && ui.core && ui.job && ui.peer

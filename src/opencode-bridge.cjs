@@ -14,6 +14,17 @@ const STARTUP_MESSAGES = Object.freeze({
   runtime_state: 'OpenCode could not prepare its isolated session directories.',
   native_server: 'OpenCode could not start its native server in the isolated workspace.',
 });
+const EDITOR_MESSAGES = Object.freeze({
+  ...STARTUP_MESSAGES,
+  owner_verifier: 'OpenCode could not prepare the selected workspace and its verification command.',
+  runtime_preparation: 'OpenCode could not finish preparing the native runtime for this workspace.',
+  model_task: 'OpenCode could not complete the coding task.',
+  model_request_bound: 'The model request exceeded the local provider limits.',
+  model_conversation: 'The local provider could not accept the task conversation.',
+  model_transport: 'The local provider could not communicate with the compute service.',
+  model_execution: 'The local compute service could not execute the model request.',
+  runtime_cleanup: 'OpenCode could not confirm that the coding session ended cleanly.',
+});
 const FAILURE_CODES = new Set([
   'task_or_runtime_failed', 'runtime_failed', 'cancelled_or_deadline',
   ...['scope', 'event_bound', 'event', 'connection', 'session_bound', 'permission_schema',
@@ -116,7 +127,7 @@ function readFrames(stream, receive, fail) {
   stream.on('data', data); stream.on('error', bad); stream.on('end', end);
   return () => { stream.off('data', data); stream.off('error', bad); stream.off('end', end); pending = Buffer.alloc(0); };
 }
-module.exports = {STARTUP_MESSAGES, readFrames, writeFrame, record, isFailureCode, taskFailure,
+module.exports = {STARTUP_MESSAGES, EDITOR_MESSAGES, readFrames, writeFrame, record, isFailureCode, taskFailure,
   validVerification, validVerificationSummary,
   PROVIDER_ERRORS, emptyProviderDiagnostic, validProviderDiagnostic,
   TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic, validTaskDiagnostic};

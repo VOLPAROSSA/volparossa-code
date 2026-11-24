@@ -261,6 +261,21 @@ test('runtime cleanup failure never displays a successful coding result or raw p
   assert(!f.errors[0].includes('private-token-and-path'));
 });
 
+test('native startup and task phases surface only fixed owner messages', async () => {
+  const secret = 'private path or task';
+  const check = checkedCodingFixture();
+  check.native.createWorkspaceVerifier = () => { throw Error(secret); };
+  await check.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(check.errors, ['OpenCode could not prepare the selected workspace and its verification command.']);
+  const run = codingFixture();
+  run.native.Runtime.start = async () => ({
+    diagnostics: {request_errors: {request_bound: 1}},
+    async run() { throw Error(secret); }, async close() {},
+  });
+  await run.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(run.errors, ['The model request exceeded the local provider limits.']);
+});
+
 test('deactivation during native startup closes the new runtime without beginning a task', async () => {
   const f = codingFixture(); let joined = false;
   f.native.Runtime.start = async () => {
