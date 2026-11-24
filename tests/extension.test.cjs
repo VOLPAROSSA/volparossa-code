@@ -389,6 +389,8 @@ test('native agent enrollment routes the complete saved source through the actua
     return {publicDelegation: proxy.observations, async close() { await proxy.close(); f.events.push(['cleanup']); },
       async run(prompt, {approve}) {
         assert.match(prompt, /PRIVATE_PLAN/); assert.match(prompt, /single_file_replacement_v1/);
+        assert.match(prompt, /owner-enrolled public snapshot by its catalog name/);
+        assert.doesNotMatch(prompt, /volparossa_delegate_public/);
         original = await new CooperativeToolClient(proxy.socketPath).execute('opencode_source_test_call');
         assert.equal(original.result.proposal_complete, true);
         assert.equal(original.result.outputs[0].text, 'export const value = 2;\n');
