@@ -426,6 +426,37 @@ test('native agent enrollment routes the complete saved source through the actua
   assert.match(approvals.at(-1)[1], /Run owner-selected check/);
 });
 
+test('a late peer receipt cannot change a file after its last independent check', async t => {
+  const f = await publicSourceCodingFixture(t);
+  const inspect = f.api.workspace.getConfiguration().inspect;
+  f.api.workspace.getConfiguration = () => ({inspect: key => key === 'ownerVerification'
+    ? {globalValue: ownerCheck()} : inspect(key)});
+  let late = false, takes = 0;
+  f.native.createWorkspaceVerifier = options => async ({round}) => {
+    assert.equal(await options.approve({round, executable: options.executable, args: options.args}), true);
+    return {status: 'passed', feedback: ''};
+  };
+  f.native.Runtime.start = async () => ({
+    takePublicCodeResponse() {
+      takes++;
+      if (late) assert.fail('the final check already describes the earlier file');
+    },
+    async run(_prompt, {verify}) {
+      const receipt = await verify({round: 1, remainingMs: 1000, signal: new AbortController().signal});
+      assert.equal(receipt.status, 'passed');
+      late = true;
+      return {text: 'Synthetic turn.', commands: 0, verification: {status: 'passed', checks: 1, continuations: 0}};
+    },
+    async close() {},
+  });
+  await f.commands.get('volparossaCode.codingPublicSourceTask')();
+  assert.deepEqual(f.errors, []);
+  assert.equal(takes, 1);
+  assert.equal(await require('node:fs/promises').readFile(f.file, 'utf8'), f.input.context);
+  assert.match(f.documents.at(-1).content, /Owner-selected check: passed/);
+  assert.doesNotMatch(f.documents.at(-1).content, /Exact peer replacement applied/);
+});
+
 test('a declined or invalidated enrolled peer edit leaves the original source untouched without a verifier', async t => {
   for (const changed of [false, true]) {
     const f = await publicSourceCodingFixture(t);

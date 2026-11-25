@@ -293,7 +293,9 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
               return verify(round);
             }, maxVerificationRounds: verification.maxRounds} : {}),
             onStatus: event => progress.report({message: `${event.commands} native command(s) observed; last ${event.status}.`})});
-          await reviewPeer(controller.signal);
+          // A completed verifier describes the file it actually examined.
+          // Never apply a late peer result after that check.
+          if (!verify) await reviewPeer(controller.signal);
           return outcome;
         }
         finally { listener.dispose(); }
