@@ -402,6 +402,12 @@ the independent filesystem and test checks. The SHA-256 of the
 `2242e9e1441ca62f940f2c1cb5ee065d914280cf4ac2d6c6a297ea7994de6695`.
 [Hosted trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45516150432).
 
+A subsequent trial stopped at the file picker after workspace trust, before
+enrollment or model use. The source driver had changed the headless viewport
+before selection. The next driver preserves its original geometry during owner
+interactions. [Run](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45518396855)
+· [Original receipts](evidence/vscodium-local-planner-45518396855.zip).
+
 ### Explicit public single-file proposals (candidate)
 
 **Run OpenCode Task with Enrolled Public Source** connects the same native agent

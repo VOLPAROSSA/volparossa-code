@@ -69,6 +69,9 @@ async function exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CH
       // layout settles, collecting only closed observations from the receipt.
       let missing = missingResult(ui, evidence);
       if (missing) {
+        // The headless desktop's original pixel coordinates drive enrollment and
+        // both approvals. Only the completed receipt can need a larger viewport.
+        await cdp.call('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false});
         await wait(cdp, current => {
           if (current.applied) { ui = current; missing = missingResult(current, evidence); }
           return !missing;

@@ -220,7 +220,6 @@ async function runInWorkspace(receipt, planner) {
     const intactTests=()=>hash(contents('test_fixture.py'))===evidence.original_tests_sha256;
     let presentationFailure;
     if (planner) {
-      await cdp.call('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false});
       await selectSource(cdp, evidence);
       try { await planner.exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CHECK}); }
       catch (error) {
