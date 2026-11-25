@@ -140,6 +140,7 @@ async function runSession({input, output, events = process, outputConstraint}, h
   }, broken);
   input.once('end', stop); input.once('close', stop); output.once('error', broken);
   for (const name of ['SIGTERM', 'SIGINT', 'SIGHUP']) events.once(name, broken);
+  let startupStage = 'private_handshake';
   try {
     const caps = capabilities(await (hooks.preflight ?? (async () => {
       const core = new PrivateConversation('/opt/core/compute.sock', {generationPolicyVersion: 1, executionErrorVersion: 1,
@@ -157,13 +158,17 @@ async function runSession({input, output, events = process, outputConstraint}, h
     const model = caps.model_profile;
     nativeSession = caps.inference_backend === 'llama_cpp_bf16_v1';
     if (closing) throw Error('closed');
+    startupStage = 'private_provider';
     provider = await (hooks.provider ?? startChatCompletionsProvider)({socketPath: '/opt/core/compute.sock', model,
       diagnostics: true, nativeSession,
       ...(outputConstraint !== undefined ? {outputConstraint} : {})});
     const password = randomBytes(32).toString('hex');
+    startupStage = 'public_proxy';
     const cooperative = (hooks.cooperative ?? cooperativeMounted)();
     const settings = runtimeSettings({baseUrl: provider.baseUrl, bearerToken: provider.bearerToken, password, cooperative, model});
+    startupStage = 'runtime_state';
     (hooks.prepare ?? prepareState)(cooperative);
+    startupStage = 'native_server';
     const listen = await (hooks.port ?? port)();
     child = spawnServer('/opt/opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(listen)], {
       cwd: '/workspace', env: settings.env, stdio: ['ignore', 'ignore', 'ignore'],
@@ -185,10 +190,13 @@ async function runSession({input, output, events = process, outputConstraint}, h
     client.timeoutMs = 30000;
     const Task = hooks.Task ?? OpenCodeTask;
     task = new Task(client, approve, {model, onStatus: status => send({type: 'status', ...status})});
+    startupStage = null;
     send({type: 'ready', version: 1, execution: 'private_local', confidentialRemoteAvailable: false, modelProfile: model});
     await ended;
-  } catch { bad = true; }
-  finally {
+  } catch {
+    if (startupStage) send({type: 'startup_failed', stage: startupStage});
+    bad = true;
+  } finally {
     stop();
     if (running) { try { await running; } catch { bad = true; } }
     client?.close();

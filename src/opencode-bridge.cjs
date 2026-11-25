@@ -5,6 +5,34 @@ const LIMIT = 524288;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 // Closed lifecycle facts only. Never copy an exception message, model text,
 // tool arguments, session ID or path into a diagnostic frame.
+const STARTUP_MESSAGES = Object.freeze({
+  runtime_inputs: 'OpenCode could not verify the selected runtime inputs.',
+  runtime_namespace: 'OpenCode could not start the isolated coding process.',
+  private_handshake: 'OpenCode could not negotiate capabilities with the private compute service.',
+  private_provider: 'OpenCode could not start the local model provider.',
+  public_proxy: 'OpenCode could not prepare the enrolled public task connection.',
+  runtime_state: 'OpenCode could not prepare its isolated session directories.',
+  native_server: 'OpenCode could not start its native server in the isolated workspace.',
+});
+const EDITOR_MESSAGES = Object.freeze({
+  ...STARTUP_MESSAGES,
+  owner_verifier: 'OpenCode could not prepare the selected workspace and its verification command.',
+  runtime_preparation: 'OpenCode could not finish preparing the native runtime for this workspace.',
+  model_task: 'OpenCode could not complete the coding task.',
+  model_request_bound: 'The model request exceeded the local provider limits.',
+  model_conversation: 'The local provider could not accept the task conversation.',
+  model_transport: 'The local provider could not communicate with the compute service.',
+  model_execution: 'The local compute service could not execute the model request.',
+  model_output: 'The local model returned output that the coding provider could not use.',
+  model_tool_choice: 'The local model did not return the requested tool call.',
+  model_budget: 'The local model reached its execution budget.',
+  model_busy: 'The local compute service was busy.',
+  model_cancelled: 'The local model request was cancelled.',
+  model_cleanup: 'The local provider could not confirm that its model worker ended cleanly.',
+  model_incomplete: 'The local model ended the turn with an incomplete answer.',
+  native_session: 'The native coding session failed while processing the task.',
+  runtime_cleanup: 'OpenCode could not confirm that the coding session ended cleanly.',
+});
 const FAILURE_CODES = new Set([
   'task_or_runtime_failed', 'runtime_failed', 'cancelled_or_deadline',
   ...['scope', 'event_bound', 'event', 'connection', 'session_bound', 'permission_schema',
@@ -107,7 +135,7 @@ function readFrames(stream, receive, fail) {
   stream.on('data', data); stream.on('error', bad); stream.on('end', end);
   return () => { stream.off('data', data); stream.off('error', bad); stream.off('end', end); pending = Buffer.alloc(0); };
 }
-module.exports = {readFrames, writeFrame, record, isFailureCode, taskFailure,
+module.exports = {STARTUP_MESSAGES, EDITOR_MESSAGES, readFrames, writeFrame, record, isFailureCode, taskFailure,
   validVerification, validVerificationSummary,
   PROVIDER_ERRORS, emptyProviderDiagnostic, validProviderDiagnostic,
   TASK_TOOLS, TOOL_STATES, emptyTaskDiagnostic, validTaskDiagnostic};

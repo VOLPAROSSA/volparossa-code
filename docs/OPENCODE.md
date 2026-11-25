@@ -365,6 +365,49 @@ The MPTCP/TLS exit recorded two completed flows in the discovery phase and seven
 
 The Actions workflow at `5ad6f4c6` selected Core `06b12d06` and immutable Code driver `ab7dd3de`. To reproduce the workbench test, dispatch `opencode-public-code.yml` with the reviewed workflow ref, its full SHA as `expected_code_sha`, and `vscodium_workbench=true`. The 37-file original ZIP has SHA-256 `b8da40c52a1060d44efdbd7bdcd48329dcdc46e5af758324c739ac4889b24dac`. [Hosted run](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/44561152211) · [Original receipts](evidence/vscodium-public-peer-44561152211.zip)
 
+### Local planner with an enrolled public source file
+
+The VSCodium trial at Code workflow `80ad05a3`, driver `72d8de73` and Core
+`5f668b5f` reached the first local Qwen3-0.6B worker after the owner enrolled
+the file and authorized planning. Core rejected a tool name outside the offered
+catalog. The worker ended before a public task, peer receipt or approved edit.
+The original archive's SHA-256 is
+`4503f01eb267b2c2a80ca78ad0058c8d5c45eb39c52780093f77382317c70fad`.
+[Hosted trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45425334685)
+· [Original receipts](evidence/vscodium-local-planner-45425334685.zip).
+
+On workflow `32c2b2fe`, driver `0b9d5b89` and Core `3016b05a`, the local
+planner delegated one enrolled task. The independent observer recorded a
+completed peer job and its receipt. Five local model workers ended, one
+observed before delegation and four after the receipt. The owner approved
+three checks. The editor reached its deadline without presenting a local edit.
+The original archive's SHA-256 is
+`20d6160d4eed99e4aa9841b09c1432dfa82445b6b6bb32d625f78687f35beb40`.
+[Hosted trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45507026680)
+· [Original receipts](evidence/vscodium-local-planner-45507026680.zip).
+
+The enrolled-source command now offers the validated peer replacement through
+the existing single-file review when the local model completes a turn. The
+owner sees the complete text and both digests. Applying it requires a fresh
+approval and an unchanged original file and editor document. The configured
+verification command has its own approval. The two earlier trials above
+preserve the behavior observed before this review was connected.
+
+The first trial with that review used Code workflow `2b1172b9`, driver
+`1c9ade33` and Core `e1ad9326`. A local worker ran before delegation and
+a second after the completed peer job. The workbench approved one exact
+replacement and one verification. Its final receipt assertion failed before
+the independent filesystem and test checks. The SHA-256 of the
+[original receipts](evidence/vscodium-local-planner-45516150432.zip) is
+`2242e9e1441ca62f940f2c1cb5ee065d914280cf4ac2d6c6a297ea7994de6695`.
+[Hosted trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45516150432).
+
+A subsequent trial stopped at the file picker after workspace trust, before
+enrollment or model use. The source driver had changed the headless viewport
+before selection. The next driver preserves its original geometry during owner
+interactions. [Run](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45518396855)
+· [Original receipts](evidence/vscodium-local-planner-45518396855.zip).
+
 ### Explicit public single-file proposals (candidate)
 
 **Run OpenCode Task with Enrolled Public Source** connects the same native agent

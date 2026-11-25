@@ -261,6 +261,32 @@ test('runtime cleanup failure never displays a successful coding result or raw p
   assert(!f.errors[0].includes('private-token-and-path'));
 });
 
+test('native startup and task phases surface only fixed owner messages', async () => {
+  const secret = 'private path or task';
+  const check = checkedCodingFixture();
+  check.native.createWorkspaceVerifier = () => { throw Error(secret); };
+  await check.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(check.errors, ['OpenCode could not prepare the selected workspace and its verification command.']);
+  const run = codingFixture();
+  run.native.Runtime.start = async () => ({
+    diagnostics: {request_errors: {request_bound: 1}},
+    async run() { throw Error(secret); }, async close() {},
+  });
+  await run.commands.get('volparossaCode.codingTask')();
+  assert.deepEqual(run.errors, ['The model request exceeded the local provider limits.']);
+  for (const [diagnostics, reason, expected] of [
+    [{request_errors: {invalid_model_output: 1}}, 'opencode_task_native_error', 'The local model returned output that the coding provider could not use.'],
+    [{incomplete: 1}, 'opencode_task_native_error', 'The local model ended the turn with an incomplete answer.'],
+    [null, secret, 'OpenCode could not complete the coding task.'],
+  ]) {
+    const task = codingFixture();
+    task.native.Runtime.start = async () => ({diagnostics,
+      async run() { throw Object.assign(Error(secret), {code: reason}); }, async close() {}});
+    await task.commands.get('volparossaCode.codingTask')();
+    assert.deepEqual(task.errors, [expected]);
+  }
+});
+
 test('deactivation during native startup closes the new runtime without beginning a task', async () => {
   const f = codingFixture(); let joined = false;
   f.native.Runtime.start = async () => {
@@ -299,7 +325,7 @@ test('public coding enrollment contains only the exact reviewed excerpt and publ
   const launch = f.events.find(event => event[0] === 'launch');
   assert.deepEqual(launch[2].cooperation, {socketPath: '/run/owner/public.sock', snapshot: opaque});
   assert.equal(launch[1].cooperativeSocketPath, undefined);
-  assert(f.events.find(event => event[0] === 'task')[1].includes('volparossa_delegate_public'));
+  assert.match(f.events.find(event => event[0] === 'task')[1], /owner-enrolled public snapshot by its catalog name/);
   assert(f.documents[0].content.includes('Exact selected code:\nconst answer = 42;'));
   assert(!JSON.stringify(enrollments).includes('Private task'));
   assert.deepEqual(f.errors, []);
@@ -350,7 +376,13 @@ test('native agent enrollment routes the complete saved source through the actua
   const {CooperativeToolClient} = require('../src/cooperative-tool-client.cjs');
   const inspect = f.api.workspace.getConfiguration().inspect;
   f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
-    ? {globalValue: core.socketPath, workspaceValue: '/tmp/untrusted.sock'} : inspect(key)});
+    ? {globalValue: core.socketPath, workspaceValue: '/tmp/untrusted.sock'}
+    : key === 'ownerVerification' ? {globalValue: ownerCheck()} : inspect(key)});
+  f.native.createWorkspaceVerifier = options => async ({round}) => {
+    assert.equal(await require('node:fs/promises').readFile(f.file, 'utf8'), 'export const value = 2;\n');
+    assert.equal(await options.approve({round, executable: options.executable, args: options.args}), true);
+    return {status: 'passed', feedback: ''};
+  };
   let original;
   // Native planner is synthetic here; enrollment, filesystem capture, proxy and
   // framed core transport are real. This is not a real-model coding-loop proof.
@@ -360,15 +392,18 @@ test('native agent enrollment routes the complete saved source through the actua
     assert.equal(options.cooperation.socketPath, core.socketPath);
     assert.deepEqual(Object.keys(options.cooperation).sort(), ['snapshot', 'socketPath']);
     const proxy = await startCooperativeTool(options.cooperation);
-    return {publicDelegation: proxy.observations, async close() { await proxy.close(); f.events.push(['cleanup']); },
-      async run(prompt, {approve}) {
+    return {publicDelegation: proxy.observations, takePublicCodeResponse: proxy.takeCodeResponse,
+      async close() { assert.equal(proxy.takeCodeResponse(), undefined); await proxy.close(); f.events.push(['cleanup']); },
+      async run(prompt, {verify}) {
         assert.match(prompt, /PRIVATE_PLAN/); assert.match(prompt, /single_file_replacement_v1/);
+        assert.match(prompt, /owner-enrolled public snapshot by its catalog name/);
+        assert.doesNotMatch(prompt, /volparossa_delegate_public/);
         original = await new CooperativeToolClient(proxy.socketPath).execute('opencode_source_test_call');
         assert.equal(original.result.proposal_complete, true);
         assert.equal(original.result.outputs[0].text, 'export const value = 2;\n');
-        assert.equal(await approve({permission: 'edit', directory: f.workspace, command: 'Edit source.js',
-          metadata: {diff: 'synthetic proposed diff'}}), true);
-        return {text: 'Synthetic planner received original peer result.', commands: 0};
+        assert.equal((await verify({round: 1, remainingMs: 1000, signal: new AbortController().signal})).status, 'passed');
+        return {text: 'Synthetic planner received original peer result.', commands: 0,
+          verification: {status: 'passed', checks: 1, continuations: 0}};
       }};
   };
   await f.commands.get('volparossaCode.codingPublicSourceTask')();
@@ -383,6 +418,76 @@ test('native agent enrollment routes the complete saved source through the actua
   assert.match(f.documents[0].content, /Complete saved source file:\nexport const value = 1;/);
   assert.deepEqual(f.events.at(-1), ['cleanup']);
   assert.match(f.documents.at(-1).content, /Enrolled public tasks submitted: 1; terminal responses: 1; cleanup confirmed: true/);
+  assert.match(f.documents.at(-1).content, /Exact peer replacement applied by owner: yes/);
+  assert.ok(f.documents.some(doc => doc.content.includes('generated public peer proposal') &&
+    doc.content.endsWith('export const value = 2;\n')));
+  const approvals = f.events.filter(event => event[0] === 'approval');
+  assert.match(approvals.at(-2)[1], /Replace only source.js with this exact peer proposal/);
+  assert.match(approvals.at(-1)[1], /Run owner-selected check/);
+});
+
+test('a late peer receipt cannot change a file after its last independent check', async t => {
+  const f = await publicSourceCodingFixture(t);
+  const inspect = f.api.workspace.getConfiguration().inspect;
+  f.api.workspace.getConfiguration = () => ({inspect: key => key === 'ownerVerification'
+    ? {globalValue: ownerCheck()} : inspect(key)});
+  let late = false, takes = 0;
+  f.native.createWorkspaceVerifier = options => async ({round}) => {
+    assert.equal(await options.approve({round, executable: options.executable, args: options.args}), true);
+    return {status: 'passed', feedback: ''};
+  };
+  f.native.Runtime.start = async () => ({
+    takePublicCodeResponse() {
+      takes++;
+      if (late) assert.fail('the final check already describes the earlier file');
+    },
+    async run(_prompt, {verify}) {
+      const receipt = await verify({round: 1, remainingMs: 1000, signal: new AbortController().signal});
+      assert.equal(receipt.status, 'passed');
+      late = true;
+      return {text: 'Synthetic turn.', commands: 0, verification: {status: 'passed', checks: 1, continuations: 0}};
+    },
+    async close() {},
+  });
+  await f.commands.get('volparossaCode.codingPublicSourceTask')();
+  assert.deepEqual(f.errors, []);
+  assert.equal(takes, 1);
+  assert.equal(await require('node:fs/promises').readFile(f.file, 'utf8'), f.input.context);
+  assert.match(f.documents.at(-1).content, /Owner-selected check: passed/);
+  assert.doesNotMatch(f.documents.at(-1).content, /Exact peer replacement applied/);
+});
+
+test('a declined or invalidated enrolled peer edit leaves the original source untouched without a verifier', async t => {
+  for (const changed of [false, true]) {
+    const f = await publicSourceCodingFixture(t);
+    const core = await require('./public-code-fixture.cjs').fixture(t);
+    const inspect = f.api.workspace.getConfiguration().inspect;
+    f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
+      ? {globalValue: core.socketPath} : inspect(key)});
+    const document = f.api.window.activeTextEditor.document;
+    const confirm = f.api.window.showWarningMessage;
+    let offered = 0;
+    f.api.window.showWarningMessage = async (message, options, action) => {
+      if (action !== 'Apply replacement once') return confirm(message, options, action);
+      offered++;
+      if (changed) document.version++;
+      return changed ? action : undefined;
+    };
+    f.native.Runtime.start = async (_config, {cooperation}) => {
+      const proxy = await require('../src/cooperative-tool-server.cjs').startCooperativeTool(cooperation);
+      return {publicDelegation: proxy.observations, takePublicCodeResponse: proxy.takeCodeResponse, close: proxy.close,
+        async run() {
+          const client = new (require('../src/cooperative-tool-client.cjs').CooperativeToolClient)(proxy.socketPath);
+          await client.execute('enrolled_source_review');
+          return {text: 'Synthetic local turn.', commands: 0};
+        }};
+    };
+    await f.commands.get('volparossaCode.codingPublicSourceTask')();
+    assert.deepEqual(f.errors, []);
+    assert.equal(offered, 1);
+    assert.equal(await require('node:fs/promises').readFile(f.file, 'utf8'), f.input.context);
+    assert.match(f.documents.at(-1).content, /Exact peer replacement applied by owner: no/);
+  }
 });
 
 test('source enrollment preserves one-shot edits and owner checks in the existing native task path', async t => {

@@ -17,6 +17,7 @@ async function startCooperativeTool({socketPath, snapshot}, hooks = {}) {
   const endpoint = path.join(directory, 'task.sock');
   const sockets = new Set(), controller = new AbortController();
   let used = false, active, cleanupError, closing, closed = false, terminal = false;
+  let codeResponse;
   const observations = {submitted: 0, completed: 0, cleanup_confirmed: false};
   const cancel = () => { if (!terminal) controller.abort(); };
   const server = net.createServer(socket => {
@@ -42,6 +43,14 @@ async function startCooperativeTool({socketPath, snapshot}, hooks = {}) {
           observations.submitted++;
           const value = await delegate.execute({tool_call_id: request.call_id, snapshot, signal: controller.signal});
           // Delegate validates the original result and awaits terminal execution cleanup.
+          if (value.result?.operation === 'public_code_proposal') {
+            const proposal = require('./cooperative-delegation.cjs').validatedCodeProposal(snapshot, value);
+            codeResponse = value;
+            observations.codeReceipt = Object.freeze({
+              coreTaskId: proposal.coreTaskId, peerJobId: proposal.peerJobId, peerReportSha256: proposal.peerReportSha256,
+              complete: proposal.complete, outputSha256: require('node:crypto').createHash('sha256').update(proposal.text).digest('hex'),
+            });
+          }
           observations.completed++; terminal = true;
           send({type: 'result', value});
         } catch (error) {
@@ -69,6 +78,7 @@ async function startCooperativeTool({socketPath, snapshot}, hooks = {}) {
         observations.cleanup_confirmed = !cleanupError;
       } catch { cleanupError = Error('cooperation_cleanup_unconfirmed'); }
       finally {
+        codeResponse = undefined;
         await new Promise(resolve => server.close(resolve));
         // Exact owned mkdtemp, never a selected project or service state directory.
         await fs.rm(directory, {recursive: true, force: false});
@@ -82,7 +92,13 @@ async function startCooperativeTool({socketPath, snapshot}, hooks = {}) {
       server.once('error', reject); server.listen(endpoint, resolve);
     });
     await fs.chmod(endpoint, 0o600);
-    return {socketPath: endpoint, observations, close};
+    // Only the owner process can take the transport-validated response. The proxy
+    // socket exposes the original peer result and no filesystem capability.
+    return {socketPath: endpoint, observations, close, takeCodeResponse() {
+      const original = codeResponse;
+      codeResponse = undefined;
+      return original;
+    }};
   } catch (error) { await close().catch(() => {}); throw error; }
 }
 

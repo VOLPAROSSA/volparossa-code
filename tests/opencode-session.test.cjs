@@ -109,11 +109,11 @@ test('incompatible, widened or quarantined core fails before provider or native 
     {generation_policies: []}, {execution_error_version: undefined}, {execution_error_version: 2},
     {model_profile: 'unreviewed-model'}]) {
     class Task { constructor() { assert.fail('must not create task'); } }
-    const f = fixture(Task, () => assert.fail('must not signal ready'), {capabilities: {
+    const f = fixture(Task, value => assert.deepEqual(value, {type: 'startup_failed', stage: 'private_handshake'}), {capabilities: {
       ...caps(model), generation_policy_version: 1, generation_policies: ['greedy_v1'], execution_error_version: 1, ...changed,
     }});
     assert.equal(await f.done, 1);
-    assert.deepEqual(f.binding, {}); assert.deepEqual(f.observed, []);
+    assert.deepEqual(f.binding, {}); assert.deepEqual(f.observed, ['startup_failed']);
   }
 });
 test('expired approval does not prevent subsequent requests or accept a late response', async () => {

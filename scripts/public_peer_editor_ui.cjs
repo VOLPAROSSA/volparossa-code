@@ -12,6 +12,7 @@ const {trustWorkspace, invokeCommand, until, button, CHECK} = require('./opencod
 const {ORIGINAL, TEST, isolatedCheck} = require('./smoke_opencode_inference.cjs');
 const {QUESTION} = require('./smoke_public_code_proposal.cjs');
 const {capturePublicCodeFile} = require('../src/public-code-file.cjs');
+const {EDITOR_MESSAGES} = require('../src/opencode-bridge.cjs');
 const LABEL = 'VOLPAROSSA: Propose a Replacement for a Public Source File';
 const LICENSE = 'GPL-3.0-only';
 const OWNER = '/workbench';
@@ -36,22 +37,44 @@ const STATE = `(() => {
   const originalLines = ${JSON.stringify(ORIGINAL.trimEnd().split('\n'))};
   const hasSource = lines => lines.some((line, i) => line === originalLines[0] &&
     originalLines.every((expected, offset) => expected === lines[i + offset]));
+  const peerView = documents.find(lines => lines.includes('VOLPAROSSA — generated public peer proposal, not yet applied'));
+  const peerStart = peerView?.indexOf('def add(a, b):') ?? -1;
+  const peerLines = peerStart >= 0 ? peerView.slice(peerStart, peerStart + 2) : [];
   const preview = documents.some(lines => lines.includes('Public source proposal — GPL-3.0-only') &&
     lines.includes(${JSON.stringify(QUESTION)}) && lines.includes('Complete selected file:') && hasSource(lines));
-  const result = documents.find(lines => lines.includes('VOLPAROSSA public code proposal: applied to the selected file.'));
+  const plannerPreview = documents.some(lines => lines.includes('Public snapshot to enroll — GPL-3.0-only') &&
+    lines.includes(${JSON.stringify(QUESTION)}) && lines.includes('Complete saved source file:') && hasSource(lines));
+  const plannerResult = documents.find(lines => lines.includes('VOLPAROSSA — OpenCode turn finished'));
+  const result = plannerResult || documents.find(lines => lines.includes('VOLPAROSSA public code proposal: applied to the selected file.'));
   const core = result?.find(line => /^Core request: [0-9a-f]{32}$/.test(line));
   const job = result?.find(line => /^Peer job: [0-9a-f]{32}$/.test(line));
   const peer = result?.find(line => /^Peer report SHA-256: [0-9a-f]{64}$/.test(line));
-  return {quick:visible(input)?center(input):null,title:text(quick?.querySelector('.quick-input-title')),
+  const notifications = [...document.querySelectorAll('.notification-list-item-message')].filter(visible).map(text);
+  const startupFailure = Object.entries(${JSON.stringify(EDITOR_MESSAGES)}).find(([,label])=>notifications.includes(label))?.[0];
+  const plannerRunning = notifications.some(message => message.includes('VOLPAROSSA OpenCode — enrolled public cooperation'));
+  return {startupFailure,plannerRunning,quick:visible(input)?center(input):null,title:text(quick?.querySelector('.quick-input-title')),
     license:choice.length===1?center(choice[0]):null, file:files.length===1?center(files[0]):null, dialogs,
-    source:documents.some(hasSource), preview, applied:!!result,
+    source:documents.some(hasSource), preview, plannerPreview, applied:!!result,
+    plannerModel:plannerResult?.includes('Model: qwen3-0.6b-v1'),
+    peerProposal:peerLines.length === 2 && /^\\s*return a \\+ b$/.test(peerLines[1]) ? peerLines : null,
+    ownerApplied:plannerResult?.includes('Exact peer replacement applied by owner: yes.'),
+    submitted:plannerResult?.includes('Enrolled public tasks submitted: 1; terminal responses: 1; cleanup confirmed: true.'),
+    complete:plannerResult?.includes('Peer proposal complete: yes'),
+    output:plannerResult?.find(line => /^Peer proposal SHA-256: [0-9a-f]{64}$/.test(line))?.slice('Peer proposal SHA-256: '.length),
+    plannerCheck:plannerResult?.some(line => line.startsWith('Owner-selected check: passed; checks: ')),
+    editPreview:documents.some(lines => lines.includes('OpenCode proposed edit — review before approving') &&
+      lines.some(line => line.includes('fixture.py')) && lines.some(line => line.startsWith('-') && line.includes('return a - b')) &&
+      lines.some(line => /^\\+\\s*return [a-z0-9_+*/% ()-]{1,64}$/.test(line))),
     checked:!!result?.includes('Owner-selected local check: passed; not general correctness.'),
     core:core?.slice('Core request: '.length), job:job?.slice('Peer job: '.length), peer:peer?.slice('Peer report SHA-256: '.length),
     failed:[...document.querySelectorAll('.notification-list-item-message')].filter(visible)
       .some(e=>text(e).includes('VOLPAROSSA could not complete this operation.'))};
 })()`;
 function wait(cdp, predicate, seconds, failure) {
-  return until(cdp, STATE, predicate, Date.now() + seconds * 1000, failure);
+  return until(cdp, STATE, state => {
+    if (state.startupFailure) throw Error(state.startupFailure);
+    return predicate(state);
+  }, Date.now() + seconds * 1000, failure);
 }
 
 function containsAll(message, fragments) {
@@ -64,7 +87,7 @@ function editDigest(message) {
   return match[2];
 }
 
-async function exercise(cdp, evidence, intactTests, {stopBeforeEnrollment = false} = {}) {
+async function selectSource(cdp, evidence) {
   await trustWorkspace(cdp, evidence);
   await cdp.key('p', 'KeyP', 80, 2);
   let ui = await wait(cdp, view => view.quick, 15, 'file_picker');
@@ -73,8 +96,12 @@ async function exercise(cdp, evidence, intactTests, {stopBeforeEnrollment = fals
   ui = await wait(cdp, view => view.file, 15, 'file_picker');
   await cdp.click(ui.file);
   await wait(cdp, view => !view.quick && view.source, 15, 'selected_file');
+}
+
+async function exercise(cdp, evidence, intactTests, {stopBeforeEnrollment = false} = {}) {
+  await selectSource(cdp, evidence);
   await invokeCommand(cdp, LABEL);
-  ui = await wait(cdp, view => view.quick && view.title === 'Public single-file code proposal', 30, 'public_task');
+  let ui = await wait(cdp, view => view.quick && view.title === 'Public single-file code proposal', 30, 'public_task');
   await cdp.click(ui.quick);
   await cdp.call('Input.insertText', {text: QUESTION});
   await cdp.key('Enter', 'Enter', 13);
@@ -135,17 +162,17 @@ function guard() {
   const virt=spawnSync('/usr/bin/systemd-detect-virt',['--vm'],{encoding:'utf8',timeout:5000});
   assert.ok(virt.status===0 && virt.stdout.trim()==='kvm');
 }
-async function run() {
+async function run(planner = null) {
   guard();
   process.umask(0o077);
   const uid=process.getuid(), socket=await fs.lstat(OWNER+'/public.sock');
   assert.ok(socket.isSocket() && socket.uid===uid && (socket.mode&0o777)===0o600);
   assert.equal((await fs.lstat('/usr/bin')).uid,0);
   const receipt = await fs.open(path.join(OWNER, 'report.json'), 'wx', 0o600);
-  try { await runInWorkspace(receipt); }
+  try { await runInWorkspace(receipt, planner); }
   finally { await receipt.close(); }
 }
-async function runInWorkspace(receipt) {
+async function runInWorkspace(receipt, planner) {
   await fs.mkdir(SCRATCH,{mode:0o700});
   const evidence={version:1,kind:'vscodium-public-peer-workbench',passed:false,phase:'prepare',
     workspace_trust_granted:false,previewed_exact_public_source:false,owner_enrolled_public_source:false,
@@ -154,6 +181,8 @@ async function runInWorkspace(receipt) {
     license:LICENSE,original_baseline_failed:false,original_tests_unchanged:false,independent_test_passed:false,
     only_selected_file_present:false,actual_applied_sha256:null,replacement_sha256:null,core_task_id:null,
     peer_job_id:null,report_sha256:null,editor_joined:false,project_removed:false,failure:null};
+  if (planner) Object.assign(evidence, {kind:'vscodium-opencode-public-peer-workbench', owner_planner_approved:false, local_planner_started:false,
+    local_model_profile:null, model_requested_delegation:false, approved_edits:0, approved_commands:0, approved_checks:0});
   let editor, closed, cdp;
   try {
     await fs.mkdir(PROJECT,{mode:0o700});
@@ -168,7 +197,8 @@ async function runInWorkspace(receipt) {
       'window.dialogStyle':'custom','workbench.startupEditor':'none','telemetry.telemetryLevel':'off',
       'update.mode':'none','extensions.autoUpdate':'off','extensions.autoCheckUpdates':false,
       'security.workspace.trust.enabled':true,'volparossaCode.publicSocket':OWNER+'/public.sock',
-      'volparossaCode.ownerVerification':{executable:CHECK[0],args:CHECK.slice(1),timeoutMs:15000,maxRounds:1}
+      'volparossaCode.ownerVerification':{executable:CHECK[0],args:CHECK.slice(1),timeoutMs:15000,maxRounds:planner?4:1},
+      ...(planner ? await planner.settings(OWNER) : {})
     }),{mode:0o600,flag:'wx'});
     evidence.phase='workbench';
     editor=spawn('/opt/volparossa-editor/codium',['--new-window','--ozone-platform=headless','--disable-gpu',
@@ -188,7 +218,15 @@ async function runInWorkspace(receipt) {
     assert.ok(cdp,'workbench');
     const contents=name=>capturePublicCodeFile({workspace:PROJECT,file:path.join(PROJECT,name)}).context;
     const intactTests=()=>hash(contents('test_fixture.py'))===evidence.original_tests_sha256;
-    await exercise(cdp,evidence,intactTests);
+    let presentationFailure;
+    if (planner) {
+      await selectSource(cdp, evidence);
+      try { await planner.exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CHECK}); }
+      catch (error) {
+        if (!error.message.startsWith('planner_result_') || !evidence.owner_edit_approved || !evidence.owner_test_approved) throw error;
+        presentationFailure = error;
+      }
+    } else await exercise(cdp,evidence,intactTests);
     evidence.phase='independent_check';
     evidence.actual_applied_sha256=hash(contents('fixture.py'));
     assert.equal(evidence.actual_applied_sha256,evidence.replacement_sha256,'replacement_binding');
@@ -201,10 +239,12 @@ async function runInWorkspace(receipt) {
     cdp = null;
     assert.equal(await Promise.race([closed,sleep(15000).then(()=>-1)]),0,'editor_exit');
     evidence.editor_joined = true;
+    if (presentationFailure) throw presentationFailure;
     evidence.phase = 'complete';
   } catch(error) {
-    const allowed=new Set(['baseline','workbench','file_picker','selected_file','public_task','license','publication_preview',
-      'publication_scope','original_tests','peer_operation','owner_result','edit_scope','check_scope','dialog_closed','peer_deadline',
+    const allowed=new Set([...Object.keys(EDITOR_MESSAGES),'editor_failed','baseline','workbench','file_picker','selected_file','public_task','license','publication_preview',
+      'planner_start','planner_result','planner_result_model','planner_result_submission','planner_result_completion','planner_result_edit',
+      'planner_result_digest','planner_result_check','planner_result_ids','planner_action','publication_scope','original_tests','peer_operation','owner_result','edit_scope','check_scope','dialog_closed','peer_deadline',
       'replacement_binding','independent_check','editor_exit','trust_banner','trust_page','trust_grant','trust_close']);
     evidence.failure=allowed.has(error.message)?error.message:'workbench_failed';
   } finally {
@@ -222,4 +262,4 @@ async function runInWorkspace(receipt) {
   if(!evidence.passed) process.exitCode=1;
 }
 if(require.main===module) run().catch(()=>{process.exitCode=1;});
-module.exports={exercise,editDigest,STATE,LABEL};
+module.exports={exercise,editDigest,STATE,LABEL,run};

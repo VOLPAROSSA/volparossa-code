@@ -4,7 +4,7 @@ const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {MODEL, isCodingModel} = require('./opencode-config.cjs');
 const {OUTPUT_CONSTRAINT} = require('./private-conversation.cjs');
-const {readFrames, writeFrame, record, isFailureCode, validProviderDiagnostic, validTaskDiagnostic,
+const {STARTUP_MESSAGES, readFrames, writeFrame, record, isFailureCode, validProviderDiagnostic, validTaskDiagnostic,
   validVerification, validVerificationSummary} = require('./opencode-bridge.cjs');
 const FIELDS = ['version', 'opencode', 'opencodeSha256', 'buildReport', 'node', 'nodeSha256', 'socketPath'];
 const fail = (code = 'runtime_failed') => Object.assign(Error('opencode_runtime_unavailable_or_cleanup_unconfirmed'), {code});
@@ -45,7 +45,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
   const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
   const exited = new Promise(resolve => {
     const done = (code, signal) => {
-      terminal ??= {code, signal}; resolve(terminal); readyReject(fail()); complete(fail());
+      terminal ??= {code, signal}; resolve(terminal); readyReject(fail('runtime_namespace')); complete(fail());
     };
     child.once('error', () => done(null, 'spawn_failed')); child.once('close', done);
   });
@@ -53,6 +53,12 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
   const unbind = readFrames(child.stdout, value => {
     if (protocolBad) return;
     if (!settled) {
+      if (value.type === 'startup_failed' && Object.keys(value).length === 2 &&
+          typeof value.stage === 'string' && Object.hasOwn(STARTUP_MESSAGES, value.stage)) {
+        readyReject(fail(value.stage));
+        child.stdin.end();
+        return;
+      }
       if (value.type !== 'ready' || value.version !== 1 || value.execution !== 'private_local' ||
           value.confidentialRemoteAvailable !== false ||
           Object.hasOwn(value, 'modelProfile') && !isCodingModel(value.modelProfile)) { bad(); return; }
@@ -137,6 +143,7 @@ async function ownedOpenCode(child, {startupMs = 30000, closeMs = 45000, killMs 
   }, bad);
   child.stdin.on('error', bad);
   const outputEnded = () => {
+    if (!closing && !settled) readyReject(fail('runtime_namespace'));
     if (!closing && (!settled || run && !run.finished)) bad();
   };
   child.stdout.on('end', outputEnded); child.stdout.on('close', outputEnded);
@@ -217,7 +224,8 @@ class OpenCodeRuntime {
       if (cooperation !== undefined) {
         if (!record(cooperation) || Object.keys(cooperation).length !== 2 ||
             typeof cooperation.socketPath !== 'string' || !Object.hasOwn(cooperation, 'snapshot')) throw fail();
-        publicTool = await require('./cooperative-tool-server.cjs').startCooperativeTool(cooperation);
+        try { publicTool = await require('./cooperative-tool-server.cjs').startCooperativeTool(cooperation); }
+        catch { throw fail('public_proxy'); }
         // Never pass the actual public-service socket or its identity credentials
         // into OpenCode. This proxy exports only the exact owner-enrolled snapshot.
         checked.cooperativeSocketPath = publicTool.socketPath;
@@ -229,7 +237,7 @@ class OpenCodeRuntime {
       const runtime = await ownedOpenCode(child);
       if (!publicTool) return runtime;
       let closing;
-      return {...runtime, publicDelegation: publicTool.observations,
+      return {...runtime, publicDelegation: publicTool.observations, takePublicCodeResponse: publicTool.takeCodeResponse,
         get diagnostics() { return runtime.diagnostics; },
         get taskDiagnostics() { return runtime.taskDiagnostics; },
         close() {
