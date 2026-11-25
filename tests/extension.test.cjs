@@ -426,6 +426,39 @@ test('native agent enrollment routes the complete saved source through the actua
   assert.match(approvals.at(-1)[1], /Run owner-selected check/);
 });
 
+test('a declined or invalidated enrolled peer edit leaves the original source untouched without a verifier', async t => {
+  for (const changed of [false, true]) {
+    const f = await publicSourceCodingFixture(t);
+    const core = await require('./public-code-fixture.cjs').fixture(t);
+    const inspect = f.api.workspace.getConfiguration().inspect;
+    f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
+      ? {globalValue: core.socketPath} : inspect(key)});
+    const document = f.api.window.activeTextEditor.document;
+    const confirm = f.api.window.showWarningMessage;
+    let offered = 0;
+    f.api.window.showWarningMessage = async (message, options, action) => {
+      if (action !== 'Apply replacement once') return confirm(message, options, action);
+      offered++;
+      if (changed) document.version++;
+      return changed ? action : undefined;
+    };
+    f.native.Runtime.start = async (_config, {cooperation}) => {
+      const proxy = await require('../src/cooperative-tool-server.cjs').startCooperativeTool(cooperation);
+      return {publicDelegation: proxy.observations, takePublicCodeResponse: proxy.takeCodeResponse, close: proxy.close,
+        async run() {
+          const client = new (require('../src/cooperative-tool-client.cjs').CooperativeToolClient)(proxy.socketPath);
+          await client.execute('enrolled_source_review');
+          return {text: 'Synthetic local turn.', commands: 0};
+        }};
+    };
+    await f.commands.get('volparossaCode.codingPublicSourceTask')();
+    assert.deepEqual(f.errors, []);
+    assert.equal(offered, 1);
+    assert.equal(await require('node:fs/promises').readFile(f.file, 'utf8'), f.input.context);
+    assert.match(f.documents.at(-1).content, /Exact peer replacement applied by owner: no/);
+  }
+});
+
 test('source enrollment preserves one-shot edits and owner checks in the existing native task path', async t => {
   const f = await publicSourceCodingFixture(t), enrollments = [];
   const inspect = f.api.workspace.getConfiguration().inspect;
