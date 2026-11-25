@@ -3,6 +3,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const {createHash} = require('node:crypto');
 const {button, decision, invokeCommand} = require('./opencode_editor_ui.cjs');
 const LABEL = 'VOLPAROSSA: Run OpenCode Task with Enrolled Public Source';
 const TASK = 'Use the enrolled public source task to ask the peer for a fix. Inspect its original complete replacement. '
@@ -70,7 +71,11 @@ async function exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CH
         throw Error('planner_action');
       }
       if (exactPeerEdit) {
-        evidence.replacement_sha256 = require('./public_peer_editor_ui.cjs').editDigest(dialog.message);
+        const digest = require('./public_peer_editor_ui.cjs').editDigest(dialog.message);
+        const rendered = ui.peerProposal.join('\n');
+        assert.ok([rendered, rendered + '\n'].some(text =>
+          createHash('sha256').update(text).digest('hex') === digest), 'edit_scope');
+        evidence.replacement_sha256 = digest;
         await button(cdp, dialog, 'Apply replacement once');
       } else {
         await button(cdp, dialog, kind === 'check' ? 'Run check once' : 'Approve once');

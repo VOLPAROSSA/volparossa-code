@@ -37,8 +37,9 @@ const STATE = `(() => {
   const originalLines = ${JSON.stringify(ORIGINAL.trimEnd().split('\n'))};
   const hasSource = lines => lines.some((line, i) => line === originalLines[0] &&
     originalLines.every((expected, offset) => expected === lines[i + offset]));
-  const hasProposal = lines => lines.some((line, index) => line === 'def add(a, b):' &&
-    /^\\s*return a \\+ b$/.test(lines[index + 1] ?? ''));
+  const peerView = documents.find(lines => lines.includes('VOLPAROSSA — generated public peer proposal, not yet applied'));
+  const peerStart = peerView?.indexOf('def add(a, b):') ?? -1;
+  const peerLines = peerStart >= 0 ? peerView.slice(peerStart, peerStart + 2) : [];
   const preview = documents.some(lines => lines.includes('Public source proposal — GPL-3.0-only') &&
     lines.includes(${JSON.stringify(QUESTION)}) && lines.includes('Complete selected file:') && hasSource(lines));
   const plannerPreview = documents.some(lines => lines.includes('Public snapshot to enroll — GPL-3.0-only') &&
@@ -55,8 +56,7 @@ const STATE = `(() => {
     license:choice.length===1?center(choice[0]):null, file:files.length===1?center(files[0]):null, dialogs,
     source:documents.some(hasSource), preview, plannerPreview, applied:!!result,
     plannerModel:plannerResult?.includes('Model: qwen3-0.6b-v1'),
-    peerProposal:documents.some(lines => lines.includes('VOLPAROSSA — generated public peer proposal, not yet applied') &&
-      hasProposal(lines)),
+    peerProposal:peerLines.length === 2 && /^\\s*return a \\+ b$/.test(peerLines[1]) ? peerLines : null,
     ownerApplied:plannerResult?.includes('Exact peer replacement applied by owner: yes.'),
     submitted:plannerResult?.includes('Enrolled public tasks submitted: 1; terminal responses: 1; cleanup confirmed: true.'),
     complete:plannerResult?.includes('Peer proposal complete: yes'),
