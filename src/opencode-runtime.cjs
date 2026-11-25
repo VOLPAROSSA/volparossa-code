@@ -237,7 +237,7 @@ class OpenCodeRuntime {
       const runtime = await ownedOpenCode(child);
       if (!publicTool) return runtime;
       let closing;
-      return {...runtime, publicDelegation: publicTool.observations,
+      return {...runtime, publicDelegation: publicTool.observations, takePublicCodeResponse: publicTool.takeCodeResponse,
         get diagnostics() { return runtime.diagnostics; },
         get taskDiagnostics() { return runtime.taskDiagnostics; },
         close() {

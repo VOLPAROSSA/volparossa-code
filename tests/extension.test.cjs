@@ -376,7 +376,13 @@ test('native agent enrollment routes the complete saved source through the actua
   const {CooperativeToolClient} = require('../src/cooperative-tool-client.cjs');
   const inspect = f.api.workspace.getConfiguration().inspect;
   f.api.workspace.getConfiguration = () => ({inspect: key => key === 'publicSocket'
-    ? {globalValue: core.socketPath, workspaceValue: '/tmp/untrusted.sock'} : inspect(key)});
+    ? {globalValue: core.socketPath, workspaceValue: '/tmp/untrusted.sock'}
+    : key === 'ownerVerification' ? {globalValue: ownerCheck()} : inspect(key)});
+  f.native.createWorkspaceVerifier = options => async ({round}) => {
+    assert.equal(await require('node:fs/promises').readFile(f.file, 'utf8'), 'export const value = 2;\n');
+    assert.equal(await options.approve({round, executable: options.executable, args: options.args}), true);
+    return {status: 'passed', feedback: ''};
+  };
   let original;
   // Native planner is synthetic here; enrollment, filesystem capture, proxy and
   // framed core transport are real. This is not a real-model coding-loop proof.
@@ -386,17 +392,18 @@ test('native agent enrollment routes the complete saved source through the actua
     assert.equal(options.cooperation.socketPath, core.socketPath);
     assert.deepEqual(Object.keys(options.cooperation).sort(), ['snapshot', 'socketPath']);
     const proxy = await startCooperativeTool(options.cooperation);
-    return {publicDelegation: proxy.observations, async close() { await proxy.close(); f.events.push(['cleanup']); },
-      async run(prompt, {approve}) {
+    return {publicDelegation: proxy.observations, takePublicCodeResponse: proxy.takeCodeResponse,
+      async close() { assert.equal(proxy.takeCodeResponse(), undefined); await proxy.close(); f.events.push(['cleanup']); },
+      async run(prompt, {verify}) {
         assert.match(prompt, /PRIVATE_PLAN/); assert.match(prompt, /single_file_replacement_v1/);
         assert.match(prompt, /owner-enrolled public snapshot by its catalog name/);
         assert.doesNotMatch(prompt, /volparossa_delegate_public/);
         original = await new CooperativeToolClient(proxy.socketPath).execute('opencode_source_test_call');
         assert.equal(original.result.proposal_complete, true);
         assert.equal(original.result.outputs[0].text, 'export const value = 2;\n');
-        assert.equal(await approve({permission: 'edit', directory: f.workspace, command: 'Edit source.js',
-          metadata: {diff: 'synthetic proposed diff'}}), true);
-        return {text: 'Synthetic planner received original peer result.', commands: 0};
+        assert.equal((await verify({round: 1, remainingMs: 1000, signal: new AbortController().signal})).status, 'passed');
+        return {text: 'Synthetic planner received original peer result.', commands: 0,
+          verification: {status: 'passed', checks: 1, continuations: 0}};
       }};
   };
   await f.commands.get('volparossaCode.codingPublicSourceTask')();
@@ -411,6 +418,12 @@ test('native agent enrollment routes the complete saved source through the actua
   assert.match(f.documents[0].content, /Complete saved source file:\nexport const value = 1;/);
   assert.deepEqual(f.events.at(-1), ['cleanup']);
   assert.match(f.documents.at(-1).content, /Enrolled public tasks submitted: 1; terminal responses: 1; cleanup confirmed: true/);
+  assert.match(f.documents.at(-1).content, /Exact peer replacement applied by owner: yes/);
+  assert.ok(f.documents.some(doc => doc.content.includes('generated public peer proposal') &&
+    doc.content.endsWith('export const value = 2;\n')));
+  const approvals = f.events.filter(event => event[0] === 'approval');
+  assert.match(approvals.at(-2)[1], /Replace only source.js with this exact peer proposal/);
+  assert.match(approvals.at(-1)[1], /Run owner-selected check/);
 });
 
 test('source enrollment preserves one-shot edits and owner checks in the existing native task path', async t => {

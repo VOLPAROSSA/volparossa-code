@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const {button, decision, invokeCommand} = require('./opencode_editor_ui.cjs');
 const LABEL = 'VOLPAROSSA: Run OpenCode Task with Enrolled Public Source';
 const TASK = 'Use the enrolled public source task to ask the peer for a fix. Inspect its original complete replacement. '
-  + 'Read fixture.py, apply that exact replacement using edit after approval, and leave the tests intact. '
+  + 'Summarize the proposed fix and leave it for the owner to review and apply. Leave the tests intact. '
   + 'The owner will verify the result. Do not send anything else to peers.';
 
 async function settings(owner) {
@@ -53,23 +53,30 @@ async function exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CH
     if (ui.plannerRunning || ui.plannerModel) evidence.local_planner_started = true;
     assert.ok(!ui.failed && ui.dialogs.length <= 1, 'peer_operation');
     if (ui.applied) {
-      assert.ok(ui.plannerModel && ui.submitted && ui.complete && ui.plannerCheck && ui.output && ui.core && ui.job && ui.peer
+      assert.ok(ui.plannerModel && ui.submitted && ui.complete && ui.plannerCheck && ui.ownerApplied && ui.output === evidence.replacement_sha256 && ui.core && ui.job && ui.peer
         && evidence.owner_edit_approved && evidence.owner_test_approved, 'planner_result');
       Object.assign(evidence, {model_requested_delegation:true, local_model_profile:'qwen3-0.6b-v1', result_shown:true,
-        owner_check_status:'passed', core_task_id:ui.core, peer_job_id:ui.job, report_sha256:ui.peer, replacement_sha256:ui.output});
+        owner_check_status:'passed', core_task_id:ui.core, peer_job_id:ui.job, report_sha256:ui.peer});
       return;
     }
     const dialog = ui.dialogs[0];
     if (dialog && dialog.message !== previous) {
       const count = evidence.approved_edits + evidence.approved_commands + evidence.approved_checks;
-      const kind = decision(dialog.message, PROJECT, count);
-      if (!kind || !await intactTests() || (kind === 'edit' && !ui.editPreview)) {
+      const exactPeerEdit = dialog.message.startsWith('Replace only');
+      const kind = exactPeerEdit ? 'peer' : decision(dialog.message, PROJECT, count);
+      if (count >= 12 || !await intactTests() || !kind || kind === 'edit' ||
+          (exactPeerEdit && (!ui.peerProposal || evidence.owner_edit_approved))) {
         await button(cdp, dialog, 'Cancel');
         throw Error('planner_action');
       }
-      await button(cdp, dialog, kind === 'check' ? 'Run check once' : 'Approve once');
+      if (exactPeerEdit) {
+        evidence.replacement_sha256 = require('./public_peer_editor_ui.cjs').editDigest(dialog.message);
+        await button(cdp, dialog, 'Apply replacement once');
+      } else {
+        await button(cdp, dialog, kind === 'check' ? 'Run check once' : 'Approve once');
+      }
       if (kind === 'check') { evidence.approved_checks++; evidence.owner_test_approved = true; }
-      else if (kind === 'edit') { evidence.approved_edits++; evidence.owner_edit_approved = true; }
+      else if (exactPeerEdit) { evidence.approved_edits++; evidence.owner_edit_approved = true; }
       else evidence.approved_commands++;
     }
     previous = dialog?.message ?? null;
