@@ -393,6 +393,15 @@ approval and an unchanged original file and editor document. The configured
 verification command has its own approval. The two earlier trials above
 preserve the behavior observed before this review was connected.
 
+The first trial with that review used Code workflow `2b1172b9`, driver
+`1c9ade33` and Core `e1ad9326`. A local worker ran before delegation and
+a second after the completed peer job. The workbench approved one exact
+replacement and one verification. Its final receipt assertion failed before
+the independent filesystem and test checks. The SHA-256 of the
+[original receipts](evidence/vscodium-local-planner-45516150432.zip) is
+`2242e9e1441ca62f940f2c1cb5ee065d914280cf4ac2d6c6a297ea7994de6695`.
+[Hosted trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/45516150432).
+
 ### Explicit public single-file proposals (candidate)
 
 **Run OpenCode Task with Enrolled Public Source** connects the same native agent

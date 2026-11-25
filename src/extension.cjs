@@ -312,13 +312,13 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
       (runtime.modelProfile ? `Model: ${runtime.modelProfile}\n` : '') +
       (peer ? `Core request: ${peer.coreTaskId}\nPeer job: ${peer.peerJobId}\nPeer report SHA-256: ${peer.peerReportSha256}\n` +
         `Peer proposal SHA-256: ${peer.outputSha256}\nPeer proposal complete: ${peer.complete ? 'yes' : 'no'}\n` : '') +
+      (delegation ? `Enrolled public tasks submitted: ${delegation.submitted}; terminal responses: ${delegation.completed}; cleanup confirmed: ${delegation.cleanup_confirmed}.\n` : '') +
       (reviewedPeerEdit ? `Exact peer replacement applied by owner: ${reviewedPeerEdit.applied ? 'yes' : 'no'}.\n` : '') +
       'Overall task correctness is not independently verified by this frontend. Review your changes and tool results.\n' +
       (result.verification ? `Owner-selected check: ${result.verification.status}; checks: ${result.verification.checks}; ` +
         `continuations: ${result.verification.continuations}. This describes only the selected check, not general correctness.\n` : '') +
       `Native commands observed: ${result.commands}\nLocal private conversation executor.\n` +
-      (delegation ? `Enrolled public tasks submitted: ${delegation.submitted}; terminal responses: ${delegation.completed}; cleanup confirmed: ${delegation.cleanup_confirmed}.\n` +
-        'Terminal responses may contain incomplete answers; inspect the original peer result.\n' : 'No public-peer execution.\n') +
+      (delegation ? 'Terminal responses may contain incomplete answers; inspect the original peer result.\n' : 'No public-peer execution.\n') +
       'Protected private peer execution is not available in this candidate.\n\n' + result.text);
   });
   context.subscriptions.push(vscode.commands.registerCommand('volparossaCode.codingTask', codingTask(null)));

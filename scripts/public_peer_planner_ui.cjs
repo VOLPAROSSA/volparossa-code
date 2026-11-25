@@ -21,6 +21,17 @@ async function settings(owner) {
     buildReport:report, node:'/opt/volparossa-node', nodeSha256:'bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12'}};
 }
 
+function missingResult(view, evidence) {
+  if (!view.plannerModel) return 'planner_result_model';
+  if (!view.submitted) return 'planner_result_submission';
+  if (!view.complete) return 'planner_result_completion';
+  if (!view.ownerApplied || !evidence.owner_edit_approved) return 'planner_result_edit';
+  if (view.output !== evidence.replacement_sha256) return 'planner_result_digest';
+  if (!view.plannerCheck || !evidence.owner_test_approved) return 'planner_result_check';
+  if (!view.core || !view.job || !view.peer) return 'planner_result_ids';
+  return null;
+}
+
 async function exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CHECK}) {
   await invokeCommand(cdp, LABEL);
   async function enter(title, value) {
@@ -54,8 +65,18 @@ async function exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CH
     if (ui.plannerRunning || ui.plannerModel) evidence.local_planner_started = true;
     assert.ok(!ui.failed && ui.dialogs.length <= 1, 'peer_operation');
     if (ui.applied) {
-      assert.ok(ui.plannerModel && ui.submitted && ui.complete && ui.plannerCheck && ui.ownerApplied && ui.output === evidence.replacement_sha256 && ui.core && ui.job && ui.peer
-        && evidence.owner_edit_approved && evidence.owner_test_approved, 'planner_result');
+      // Monaco virtualizes its lines. Re-read the same foreground result after
+      // layout settles, collecting only closed observations from the receipt.
+      let missing = missingResult(ui, evidence);
+      if (missing) {
+        await wait(cdp, current => {
+          if (current.applied) { ui = current; missing = missingResult(current, evidence); }
+          return !missing;
+        }, 8, 'planner_result').catch(error => {
+          if (error.message !== 'planner_result') throw error;
+        });
+      }
+      if (missing) throw Error(missing);
       Object.assign(evidence, {model_requested_delegation:true, local_model_profile:'qwen3-0.6b-v1', result_shown:true,
         owner_check_status:'passed', core_task_id:ui.core, peer_job_id:ui.job, report_sha256:ui.peer});
       return;

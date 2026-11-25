@@ -218,9 +218,15 @@ async function runInWorkspace(receipt, planner) {
     assert.ok(cdp,'workbench');
     const contents=name=>capturePublicCodeFile({workspace:PROJECT,file:path.join(PROJECT,name)}).context;
     const intactTests=()=>hash(contents('test_fixture.py'))===evidence.original_tests_sha256;
+    let presentationFailure;
     if (planner) {
+      await cdp.call('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false});
       await selectSource(cdp, evidence);
-      await planner.exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CHECK});
+      try { await planner.exercise(cdp, evidence, intactTests, {wait, QUESTION, PROJECT, CHECK}); }
+      catch (error) {
+        if (!error.message.startsWith('planner_result_') || !evidence.owner_edit_approved || !evidence.owner_test_approved) throw error;
+        presentationFailure = error;
+      }
     } else await exercise(cdp,evidence,intactTests);
     evidence.phase='independent_check';
     evidence.actual_applied_sha256=hash(contents('fixture.py'));
@@ -234,10 +240,12 @@ async function runInWorkspace(receipt, planner) {
     cdp = null;
     assert.equal(await Promise.race([closed,sleep(15000).then(()=>-1)]),0,'editor_exit');
     evidence.editor_joined = true;
+    if (presentationFailure) throw presentationFailure;
     evidence.phase = 'complete';
   } catch(error) {
     const allowed=new Set([...Object.keys(EDITOR_MESSAGES),'editor_failed','baseline','workbench','file_picker','selected_file','public_task','license','publication_preview',
-      'planner_start','planner_result','planner_action','publication_scope','original_tests','peer_operation','owner_result','edit_scope','check_scope','dialog_closed','peer_deadline',
+      'planner_start','planner_result','planner_result_model','planner_result_submission','planner_result_completion','planner_result_edit',
+      'planner_result_digest','planner_result_check','planner_result_ids','planner_action','publication_scope','original_tests','peer_operation','owner_result','edit_scope','check_scope','dialog_closed','peer_deadline',
       'replacement_binding','independent_check','editor_exit','trust_banner','trust_page','trust_grant','trust_close']);
     evidence.failure=allowed.has(error.message)?error.message:'workbench_failed';
   } finally {
