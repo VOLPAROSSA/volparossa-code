@@ -132,7 +132,7 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
     await show('VOLPAROSSA — generated public peer proposal, not yet applied\n' +
       `Complete model output: ${proposal.complete ? 'yes' : 'no; cannot apply'}. Correctness is not established.\n` +
       'The raw replacement below is not rewritten or extracted from Markdown.\n\n' + proposal.text);
-    return applyPublicCodeFile(source, snapshot, response, {signal,
+    const {applied} = await applyPublicCodeFile(source, snapshot, response, {signal,
       approve: async edit => {
         trusted();
         if (signal?.aborted || document.isDirty || document.version !== documentVersion) return false;
@@ -144,6 +144,7 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
         trusted();
         return answer === 'Apply replacement once' && !document.isDirty && document.version === documentVersion;
       }});
+    return {applied, proposal};
   };
   const codingTask = publicPurpose => run(async () => {
     const folders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file');
@@ -379,9 +380,9 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
       try { await client.close(); } finally { publicActive = undefined; }
     }
     trusted();
-    const applied = await reviewReplacement({source, document, documentVersion}, snapshot, response, controller.signal);
+    const {applied, proposal} = await reviewReplacement({source, document, documentVersion}, snapshot, response, controller.signal);
     let verification;
-    if (applied.applied) {
+    if (applied) {
       const settings = verificationPlan;
       if (settings) {
         const verify = (native.createWorkspaceVerifier ?? require('./workspace-verifier.cjs').createWorkspaceVerifier)({
@@ -398,7 +399,7 @@ function register(vscode, context, Client = PrivateCompute, native = {}) {
         verification = await verify({round: 1, remainingMs: settings.timeoutMs, signal: controller.signal});
       }
     }
-    await show(`VOLPAROSSA public code proposal: ${applied.applied ? 'applied to the selected file' : 'not applied'}.\n` +
+    await show(`VOLPAROSSA public code proposal: ${applied ? 'applied to the selected file' : 'not applied'}.\n` +
       (verification ? `Owner-selected local check: ${verification.status}; not general correctness.\n` : 'No local test result is claimed.\n') +
       `Core request: ${proposal.coreTaskId}\nPeer job: ${proposal.peerJobId}\nPeer report SHA-256: ${proposal.peerReportSha256}\n` +
       'Other files and private history were not delegated. This first single-file contract is not protected private peer coding.');
